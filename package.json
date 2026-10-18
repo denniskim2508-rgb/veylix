@@ -12,11 +12,11 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-dialog": "^2.7.3",
-    "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-shell": "^2.3.6",
-    "@tauri-apps/plugin-updater": "^2.14.0",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.7.3",
+    "@tauri-apps/plugin-process": "2.4.0",
+    "@tauri-apps/plugin-shell": "2.3.6",
+    "@tauri-apps/plugin-updater": "2.14.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.40.0",
     "react": "^19.2.8",
@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "2.12.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

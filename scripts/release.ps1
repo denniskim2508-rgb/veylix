@@ -24,7 +24,9 @@ param(
     [string]$Notes = "",
     [string]$Tag,
     [string]$KeyPath = (Join-Path $env:USERPROFILE ".tauri\veylix.key"),
+    [string]$KeyPassword,
     [switch]$GenerateKey,
+    [switch]$SkipBuild,
     [switch]$Upload
 )
 
@@ -40,7 +42,9 @@ $outDir = Join-Path $root "release"
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
 function Read-KeyPassword {
-    $sec = Read-Host "Signing key password (press Enter if the key has none)" -AsSecureString
+    Write-Host "Enter the signing key password (press Enter for none)." -ForegroundColor Yellow
+    Write-Host "Input is hidden - nothing appears as you type, that is normal." -ForegroundColor DarkGray
+    $sec = Read-Host "Password" -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
     try {
         return [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
@@ -52,7 +56,9 @@ function Read-KeyPassword {
 # --- 1. Version parity -------------------------------------------------------
 Write-Step "Checking version parity"
 $confText = Get-Content $confPath -Raw
-$confVer = ($confText | ConvertFrom-Json).version
+$conf = $confText | ConvertFrom-Json
+$confVer = $conf.version
+$productName = $conf.productName
 $pkgVer = (Get-Content $pkgPath -Raw | ConvertFrom-Json).version
 $cargoVer = (Select-String -Path $cargoPath -Pattern '^version\s*=\s*"([^"]+)"' |
     Select-Object -First 1).Matches[0].Groups[1].Value
@@ -76,13 +82,26 @@ $endpoint = "https://github.com/$GithubRepo/releases/latest/download/latest.json
 Write-Host "    version $version  tag $Tag  repo $GithubRepo"
 
 # --- 2. Signing key ----------------------------------------------------------
+# Resolve the password once, in PowerShell. The CLI's own prompt (dialoguer)
+# reads the console in raw mode and silently swallows input when run from a
+# script, so we never let it prompt - we hand the value over with -p instead.
+# Only needed when we actually touch the key (generate) or sign a build.
+$needsPassword = $GenerateKey -or (-not $SkipBuild)
+$pw = $KeyPassword
+if ($needsPassword -and -not $pw) { $pw = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD }
+if ($needsPassword -and -not $pw) { $pw = Read-KeyPassword }
+
 if ($GenerateKey) {
     if (Test-Path $KeyPath) {
         Write-Host "    key already exists at $KeyPath (leaving it alone)"
     } else {
         Write-Step "Generating signing key at $KeyPath"
         New-Item -ItemType Directory -Force -Path (Split-Path $KeyPath) | Out-Null
-        npx tauri signer generate -w $KeyPath
+        if ([string]::IsNullOrEmpty($pw)) {
+            npx tauri signer generate -w $KeyPath --ci
+        } else {
+            npx tauri signer generate -w $KeyPath -p $pw
+        }
         if ($LASTEXITCODE -ne 0) { throw "tauri signer generate failed" }
     }
     $pubPath = "$KeyPath.pub"
@@ -102,23 +121,45 @@ if (-not (Test-Path $KeyPath)) {
 }
 
 # --- 3. Build ----------------------------------------------------------------
-Write-Step "Building (frontend via beforeBuildCommand, NSIS bundle + updater signature)"
-$env:TAURI_SIGNING_PRIVATE_KEY = (Resolve-Path $KeyPath).Path
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
-    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Read-KeyPassword
+# Purge stale output first: an old differently-named installer left in the
+# bundle dir is exactly what silently shipped the wrong binary once already.
+Write-Step "Cleaning previous output"
+if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+
+if ($SkipBuild) {
+    Write-Step "Skipping build (-SkipBuild) - re-staging existing artifacts"
+} else {
+    # Purge stale bundle output: an old, differently-named installer left here is
+    # exactly what silently shipped the wrong binary once already.
+    if (Test-Path $nsisDir) {
+        Get-ChildItem -Path $nsisDir -Filter "*-setup.exe*" -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+    Write-Step "Building (frontend via beforeBuildCommand, NSIS bundle + updater signature)"
+    $env:TAURI_SIGNING_PRIVATE_KEY = (Resolve-Path $KeyPath).Path
+    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $pw
+    npx tauri build
+    if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 }
-npx tauri build
-if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
 # --- 4. Collect artifacts ----------------------------------------------------
 Write-Step "Collecting bundle artifacts"
-$exe = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" | Select-Object -First 1
-if (-not $exe) { throw "No *-setup.exe found under $nsisDir" }
-$sig = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe.sig" | Select-Object -First 1
-if (-not $sig) {
-    throw "No *.exe.sig found. Is TAURI_SIGNING_PRIVATE_KEY set and createUpdaterArtifacts true?"
+$arch = if ($env:CARGO_BUILD_TARGET -match 'aarch64') { 'arm64' } else { 'x64' }
+$expected = "$($productName)_$($version)_$($arch)-setup.exe"
+$exe = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" -File |
+    Where-Object { $_.Name -eq $expected } | Select-Object -First 1
+if (-not $exe) {
+    $exe = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" -File |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($exe) { Write-Warning "Expected '$expected' not found; using newest instead: $($exe.Name)" }
 }
-$signature = (Get-Content $sig.FullName -Raw).Trim()
+if (-not $exe) { throw "No *-setup.exe found under $nsisDir" }
+
+$sigPath = Join-Path $nsisDir "$($exe.Name).sig"
+if (-not (Test-Path $sigPath)) {
+    throw "No signature for $($exe.Name). Is TAURI_SIGNING_PRIVATE_KEY set and createUpdaterArtifacts true?"
+}
+$signature = (Get-Content $sigPath -Raw).Trim()
 
 # --- 5. latest.json ----------------------------------------------------------
 Write-Step "Writing latest.json"
@@ -138,7 +179,7 @@ $manifestPath = Join-Path $outDir "latest.json"
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
 Copy-Item $exe.FullName (Join-Path $outDir $exe.Name) -Force
-Copy-Item $sig.FullName (Join-Path $outDir $sig.Name) -Force
+Copy-Item $sigPath (Join-Path $outDir "$($exe.Name).sig") -Force
 
 Write-Host ""
 Write-Host "Staged in $outDir :" -ForegroundColor Green
@@ -147,7 +188,7 @@ Get-ChildItem $outDir | ForEach-Object { Write-Host "  $($_.Name)" }
 # --- 6. Publish --------------------------------------------------------------
 $assets = @(
     (Join-Path $outDir $exe.Name),
-    (Join-Path $outDir $sig.Name),
+    (Join-Path $outDir "$($exe.Name).sig"),
     $manifestPath
 )
 $hasGh = [bool](Get-Command gh -ErrorAction SilentlyContinue)
@@ -167,7 +208,7 @@ if ($Upload -and $ghOk) {
     Write-Host "  1. https://github.com/$GithubRepo/releases/new  ->  tag: $Tag"
     Write-Host "  2. Upload these three files as release assets:"
     Write-Host "       $($exe.Name)"
-    Write-Host "       $($sig.Name)"
+    Write-Host "       $($exe.Name).sig"
     Write-Host "       latest.json"
     Write-Host "  3. Publish. The app polls:"
     Write-Host "       $endpoint"

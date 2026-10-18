@@ -7,7 +7,10 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build",
+    "windows": {
+      "staticVCRuntime": true
+    }
   },
   "app": {
     "windows": [
@@ -46,7 +49,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_CONTENT_OF_veylix.key.pub",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJDNDNDREMzMzAwRkY0MzkKUldRNTlBOHd3ODFEdkhScnBNcmI3WWZndUlwV05YM3VmYTF0Ujg1YlBkdDhhZWVrVjJGZG83Um8K",
       "endpoints": [
         "https://github.com/denniskim2508-rgb/veylix/releases/latest/download/latest.json"
       ],
