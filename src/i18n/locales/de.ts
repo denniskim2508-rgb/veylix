@@ -119,6 +119,8 @@ const de: Messages = {
   game: {
     neverPlayed: "Nie gespielt",
     installed: "Installiert",
+    daysPlayed: "Spieltage",
+    sessions: "Sitzungen",
     addToFavorites: "Zu Favoriten hinzufügen",
     removeFromFavorites: "Aus Favoriten entfernen",
   },
@@ -225,6 +227,8 @@ const de: Messages = {
     playTimeZero: "0h",
     playTimeHours: "{hours} Std.",
     playTimeMinutes: "{minutes} Min.",
+    daysCount: plural({ one: "{count} Tag", other: "{count} Tage" }),
+    sessionsCount: plural({ one: "{count} Sitzung", other: "{count} Sitzungen" }),
     playTimeHoursMinutes: "{hours} Std. {minutes} Min.",
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",

@@ -47,3 +47,15 @@ pub fn get_play_sessions(game_id: i64) -> rusqlite::Result<Vec<PlaySessionRow>> 
 
     Ok(sessions)
 }
+
+/// Closes any session left open when the app last terminated (e.g. it was
+/// killed while a game ran). Zero duration so no time is fabricated.
+pub fn finalize_orphan_sessions() -> rusqlite::Result<usize> {
+    let db = get_db();
+    let conn = db.as_ref().unwrap();
+
+    conn.execute(
+        "UPDATE play_sessions SET ended_at = started_at, duration_minutes = 0 WHERE ended_at IS NULL",
+        [],
+    )
+}

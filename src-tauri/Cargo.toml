@@ -1,6 +1,6 @@
 [package]
 name = "gamehub"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source game library manager"
 authors = ["Dennis"]
 license = "MIT"
@@ -50,4 +50,5 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
+    "Win32_System_Diagnostics_ToolHelp",
 ] }

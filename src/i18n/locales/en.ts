@@ -118,6 +118,8 @@ const en = {
   game: {
     neverPlayed: "Never played",
     installed: "Installed",
+    daysPlayed: "Days Played",
+    sessions: "Sessions",
     addToFavorites: "Add to favorites",
     removeFromFavorites: "Remove from favorites",
   },
@@ -225,6 +227,8 @@ const en = {
     playTimeHours: "{hours}h",
     playTimeMinutes: "{minutes}m",
     playTimeHoursMinutes: "{hours}h {minutes}m",
+    daysCount: plural({ one: "{count} day", other: "{count} days" }),
+    sessionsCount: plural({ one: "{count} session", other: "{count} sessions" }),
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",
     sizeMb: "{value} MB",

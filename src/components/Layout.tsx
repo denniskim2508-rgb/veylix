@@ -107,6 +107,7 @@ export function Layout() {
   const handlePlay = (game: Game) => {
     if (game.launchCommand) {
       invoke("launch_game", {
+        gameId: game.id,
         launchCommand: game.launchCommand,
         executablePath: game.executablePath,
       }).catch((err) => {
@@ -115,6 +116,7 @@ export function Layout() {
       });
     } else if (game.executablePath) {
       invoke("launch_game", {
+        gameId: game.id,
         launchCommand: game.executablePath,
         executablePath: null,
       }).catch((err) => {
@@ -320,7 +322,10 @@ export function Layout() {
           onOpenMetadataProviders={() => setShowMetadataProvidersModal(true)}
           onOpenAddons={() => setShowAddonModal(true)}
           onOpenControllerSettings={() => setShowControllerSettings(true)}
-          onOpenControllerDiagnostics={() => setShowControllerDiagnostics(true)}
+          onOpenControllerDiagnostics={() => {
+            setShowSettingsModal(false);
+            setShowControllerDiagnostics(true);
+          }}
         />
       )}
       {showAddModal && <AddGameModal onClose={() => setShowAddModal(false)} />}

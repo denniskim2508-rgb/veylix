@@ -108,6 +108,18 @@ export function ControllerDiagnostics({ onClose }: ControllerDiagnosticsProps) {
     };
   }, [addEvent]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose]);
+
   const fmt = (v: number) => (v >= 0 ? "+" : "") + v.toFixed(3);
   const buttonState = (action: string) => (liveInput.buttons[action] ? "PRESSED" : "RELEASED");
   const buttonColor = (action: string) => (liveInput.buttons[action] ? "text-green-400" : "text-zinc-500");
@@ -122,6 +134,8 @@ export function ControllerDiagnostics({ onClose }: ControllerDiagnosticsProps) {
             <h2 className="text-lg font-semibold text-white">Controller Diagnostics</h2>
           </div>
           <button
+            ref={closeBtn.ref as React.RefObject<HTMLButtonElement>}
+            onClick={onClose}
             {...closeBtn.focusableProps}
             className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
           >

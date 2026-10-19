@@ -159,11 +159,13 @@ export function ConsoleMode() {
     try {
       if (game.launchCommand) {
         await invoke("launch_game", {
+          gameId: game.id,
           launchCommand: game.launchCommand,
           executablePath: game.executablePath,
         });
       } else {
         await invoke("launch_game", {
+          gameId: game.id,
           launchCommand: game.executablePath,
           executablePath: null,
         });

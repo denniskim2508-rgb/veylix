@@ -6,6 +6,7 @@ import { useFocusableElement } from "../hooks/useFocusableElement";
 import { useNavigation } from "./NavigationProvider";
 import { useArtwork } from "../hooks/useArtwork";
 import { ArtworkType } from "../types";
+import { formatPlayTime } from "../utils/format";
 import clsx from "clsx";
 
 interface GameCardProps {
@@ -19,11 +20,7 @@ export function GameCard({ game, onClick, onToggleFavorite }: GameCardProps) {
   const { pushStack } = useNavigation();
   const { t } = useT();
 
-  const formatPlayTime = (hours: number): string => {
-    if (hours === 0) return t("game.neverPlayed");
-    if (hours < 1) return t("format.playTimeMinutes", { minutes: Math.round(hours * 60) });
-    return t("format.playTimeHours", { hours: Math.round(hours) });
-  };
+  const playTimeLabel = game.playTime === 0 ? t("game.neverPlayed") : formatPlayTime(game.playTime);
 
   const handleClick = () => {
     pushStack("gamegrid", `game-${game.id}`, game.id);
@@ -100,7 +97,7 @@ export function GameCard({ game, onClick, onToggleFavorite }: GameCardProps) {
           <PlatformBadge platform={game.platform} />
         </div>
         <div className="flex items-center justify-between mt-1.5">
-          <span className="text-xs text-text-muted">{formatPlayTime(game.playTime)}</span>
+          <span className="text-xs text-text-muted">{playTimeLabel}</span>
           {game.isInstalled && (
             <span className="w-2 h-2 rounded-full bg-success" title={t("game.installed")} />
           )}

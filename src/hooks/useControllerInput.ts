@@ -21,6 +21,20 @@ export function useControllerInput(
   useEffect(() => {
     let running = true;
 
+    // A pad that was already plugged in when the app started never emits a
+    // `connected` event, so fetch the current state once on mount.
+    (async () => {
+      try {
+        const controllers: ControllerInfo[] = await invoke("get_controllers");
+        setControllers(controllers);
+        const active: ControllerInfo | null = await invoke("get_active_controller");
+        setActiveController(active);
+        setConnected(controllers.length > 0);
+      } catch (err) {
+        console.warn("Controller initial fetch error:", err);
+      }
+    })();
+
     const poll = async () => {
       if (!running) return;
       try {

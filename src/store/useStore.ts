@@ -27,6 +27,7 @@ interface AppState {
   isDarkMode: boolean;
   isSidebarCollapsed: boolean;
   isLoading: boolean;
+  playtimeVersion: number;
 
   setGames: (games: Game[]) => void;
   setDrives: (drives: Drive[]) => void;
@@ -47,6 +48,7 @@ interface AppState {
   updateGame: (id: number, updates: Partial<Game>) => void;
   toggleFavorite: (id: number) => void;
   getFilteredGames: () => Game[];
+  bumpPlaytime: () => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -64,6 +66,7 @@ export const useStore = create<AppState>((set, get) => ({
   isDarkMode: true,
   isSidebarCollapsed: false,
   isLoading: false,
+  playtimeVersion: 0,
 
   setGames: (games) => set({ games }),
   setDrives: (drives) => set({ drives }),
@@ -107,6 +110,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => ({
       games: state.games.map((g) => (g.id === id ? { ...g, isFavorite: !g.isFavorite } : g)),
     })),
+  bumpPlaytime: () => set((state) => ({ playtimeVersion: state.playtimeVersion + 1 })),
   getFilteredGames: () => {
     const state = get();
     let filtered = [...state.games];

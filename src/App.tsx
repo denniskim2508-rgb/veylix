@@ -9,6 +9,7 @@ import { ConsoleMode } from "./components/console/ConsoleMode";
 import { GamepadProvider } from "./components/GamepadProvider";
 import { NavigationProvider, useNavigation } from "./components/NavigationProvider";
 import { useControllerInput } from "./hooks/useControllerInput";
+import { usePlaytimeTracking } from "./hooks/usePlaytimeTracking";
 import { emitConsoleAction } from "./utils/consoleInput";
 import type { GamehubAction } from "./types/controller";
 import type { Game, Drive } from "./types";
@@ -163,6 +164,8 @@ function AppInner() {
   const [dataReady, setDataReady] = useState(false);
   const [splashElapsed, setSplashElapsed] = useState(false);
   const [splashPhase, setSplashPhase] = useState<"show" | "out" | "done">("show");
+
+  usePlaytimeTracking();
 
   useEffect(() => {
     loadSettings();

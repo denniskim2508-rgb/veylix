@@ -119,6 +119,8 @@ const zhCN: Messages = {
   game: {
     neverPlayed: "从未游玩",
     installed: "已安装",
+    daysPlayed: "游玩天数",
+    sessions: "会话",
     addToFavorites: "添加到收藏",
     removeFromFavorites: "从收藏中移除",
   },
@@ -225,6 +227,8 @@ const zhCN: Messages = {
     playTimeZero: "0小时",
     playTimeHours: "{hours} 小时",
     playTimeMinutes: "{minutes} 分钟",
+    daysCount: plural({ other: "{count} 天" }),
+    sessionsCount: plural({ other: "{count} 个会话" }),
     playTimeHoursMinutes: "{hours} 小时 {minutes} 分钟",
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",

@@ -47,7 +47,7 @@ interface GameDetailProps {
 
 export function GameDetail({ game, onClose, onToggleFavorite, onPlay, onDelete }: GameDetailProps) {
   const setSelectedGame = useStore((s) => s.setSelectedGame);
-  const { t } = useT();
+  const { t, tp } = useT();
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showManageArtwork, setShowManageArtwork] = useState(false);
@@ -234,9 +234,9 @@ export function GameDetail({ game, onClose, onToggleFavorite, onPlay, onDelete }
               />
             )}
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatCard icon={<Clock size={20} className="text-primary" />} label="Play Time" value={formatPlayTime(data.totalMinutes || game.playTime)} />
-              <StatCard icon={<Trophy size={20} className="text-primary" />} label="Days Played" value={data.daysPlayed === 0 ? "0 days" : `${data.daysPlayed} day${data.daysPlayed !== 1 ? "s" : ""}`} />
-              <StatCard icon={<Gamepad2 size={20} className="text-primary" />} label="Sessions" value={data.sessionCount === 0 ? "0 sessions" : `${data.sessionCount} session${data.sessionCount !== 1 ? "s" : ""}`} />
+              <StatCard icon={<Clock size={20} className="text-primary" />} label={t("game.playTime")} value={formatPlayTime(data.totalMinutes || game.playTime)} />
+              <StatCard icon={<Trophy size={20} className="text-primary" />} label={t("game.daysPlayed")} value={tp("format.daysCount", data.daysPlayed)} />
+              <StatCard icon={<Gamepad2 size={20} className="text-primary" />} label={t("game.sessions")} value={tp("format.sessionsCount", data.sessionCount)} />
             </div>
           </div>
 

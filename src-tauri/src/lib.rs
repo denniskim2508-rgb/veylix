@@ -87,28 +87,33 @@ async fn scan_libraries() -> Result<Vec<GameRow>, String> {
 }
 
 #[tauri::command]
-fn launch_game(launch_command: String, executable_path: Option<String>) -> Result<(), String> {
-    launcher::launch_game(&launch_command, executable_path.as_deref())
+fn launch_game(
+    app: tauri::AppHandle,
+    game_id: Option<i64>,
+    launch_command: String,
+    executable_path: Option<String>,
+) -> Result<(), String> {
+    launcher::launch_game(&launch_command, executable_path.as_deref())?;
+
+    if let Some(game_id) = game_id {
+        if let Some(target) =
+            library::playtime::resolve_watch_target(&launch_command, executable_path.as_deref())
+        {
+            library::playtime::track_session(
+                app,
+                game_id,
+                target,
+                library::playtime::now_iso(),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 fn get_play_sessions(game_id: i64) -> Result<Vec<PlaySessionRow>, String> {
     library::get_play_sessions(game_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn start_play_session(game_id: i64, started_at: String) -> Result<i64, String> {
-    library::insert_play_session(game_id, &started_at).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn end_play_session(session_id: i64, ended_at: String, duration_minutes: i64) -> Result<(), String> {
-    library::end_play_session(session_id, &ended_at, duration_minutes).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn update_playtime(game_id: i64, play_time: i64, last_played: String) -> Result<(), String> {
-    library::update_game_playtime(game_id, play_time, &last_played).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -642,6 +647,11 @@ fn get_controller_debug_info() -> serde_json::Value {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     core::db::init_db().expect("Failed to initialize database");
+
+    if let Err(e) = library::finalize_orphan_sessions() {
+        log::error!("Failed to finalize orphan play sessions: {}", e);
+    }
+
     controller::init_controller_manager();
 
     metadata::database::init_default_priorities();
@@ -680,9 +690,6 @@ pub fn run() {
             scan_libraries,
             launch_game,
             get_play_sessions,
-            start_play_session,
-            end_play_session,
-            update_playtime,
             get_screenshots,
             get_scan_folders,
             add_scan_folder,

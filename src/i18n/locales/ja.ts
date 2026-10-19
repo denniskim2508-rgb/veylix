@@ -119,6 +119,8 @@ const ja: Messages = {
   game: {
     neverPlayed: "プレイ履歴なし",
     installed: "インストール済み",
+    daysPlayed: "プレイ日数",
+    sessions: "セッション",
     addToFavorites: "お気に入りに追加",
     removeFromFavorites: "お気に入りから削除",
   },
@@ -225,6 +227,8 @@ const ja: Messages = {
     playTimeZero: "0h",
     playTimeHours: "{hours}時間",
     playTimeMinutes: "{minutes}分",
+    daysCount: plural({ other: "{count}日" }),
+    sessionsCount: plural({ other: "{count}セッション" }),
     playTimeHoursMinutes: "{hours}時間{minutes}分",
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",

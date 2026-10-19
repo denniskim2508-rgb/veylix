@@ -124,6 +124,8 @@ const ru: Messages = {
   game: {
     neverPlayed: "Никогда не запускалась",
     installed: "Установлено",
+    daysPlayed: "Дней в игре",
+    sessions: "Сессии",
     addToFavorites: "Добавить в избранное",
     removeFromFavorites: "Убрать из избранного",
   },
@@ -240,6 +242,18 @@ const ru: Messages = {
     playTimeZero: "0ч",
     playTimeHours: "{hours} ч",
     playTimeMinutes: "{minutes} мин",
+    daysCount: plural({
+      one: "{count} день",
+      few: "{count} дня",
+      many: "{count} дней",
+      other: "{count} дней",
+    }),
+    sessionsCount: plural({
+      one: "{count} сессия",
+      few: "{count} сессии",
+      many: "{count} сессий",
+      other: "{count} сессий",
+    }),
     playTimeHoursMinutes: "{hours} ч {minutes} мин",
     sizeBytes: "{value} Б",
     sizeGb: "{value} ГБ",

@@ -119,6 +119,8 @@ const ko: Messages = {
   game: {
     neverPlayed: "플레이한 적 없음",
     installed: "설치됨",
+    daysPlayed: "플레이 일수",
+    sessions: "세션",
     addToFavorites: "즐겨찾기에 추가",
     removeFromFavorites: "즐겨찾기에서 제거",
   },
@@ -225,6 +227,8 @@ const ko: Messages = {
     playTimeZero: "0시간",
     playTimeHours: "{hours}시간",
     playTimeMinutes: "{minutes}분",
+    daysCount: plural({ other: "{count}일" }),
+    sessionsCount: plural({ other: "{count}개 세션" }),
     playTimeHoursMinutes: "{hours}시간 {minutes}분",
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",

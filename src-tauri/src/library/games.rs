@@ -162,13 +162,13 @@ pub fn update_game_executable(platform: &str, platform_game_id: &str, executable
     Ok(())
 }
 
-pub fn update_game_playtime(game_id: i64, play_time: i64, last_played: &str) -> rusqlite::Result<()> {
+pub fn add_game_playtime(game_id: i64, delta_minutes: i64, last_played: &str) -> rusqlite::Result<()> {
     let db = get_db();
     let conn = db.as_ref().unwrap();
 
     conn.execute(
-        "UPDATE games SET play_time = ?1, last_played = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
-        params![play_time, last_played, game_id],
+        "UPDATE games SET play_time = COALESCE(play_time, 0) + ?1, last_played = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
+        params![delta_minutes, last_played, game_id],
     )?;
 
     Ok(())

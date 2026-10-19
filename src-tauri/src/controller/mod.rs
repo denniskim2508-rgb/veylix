@@ -149,7 +149,49 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
         })
     }
 
-    log::info!("[Controller] controller_thread started, entering event loop");
+    // gilrs only emits `EventType::Connected` on a disconnected -> connected
+    // transition. Pads that are already plugged in when `Gilrs::new()` runs never
+    // produce that event, so seed the map from the current gamepad list.
+    let already_connected: Vec<_> = gilrs
+        .gamepads()
+        .map(|(gid, pad)| {
+            (
+                gid,
+                pad.name().to_string(),
+                pad.os_name().to_string(),
+                pad.vendor_id(),
+                pad.product_id(),
+            )
+        })
+        .collect();
+
+    for (gid, name, os_name, vid, pid) in already_connected {
+        let sid = get_serial_id(gid, &mut serial_map, &mut next_serial_id);
+        let ctype = identify_controller(vid, pid, &name);
+        let prompts = get_button_prompts(ctype);
+        log::info!("[Controller] seeded already-connected pad id={} \"{}\" os=\"{}\" vid={:?} pid={:?} type={:?}", sid, name, os_name, vid, pid, ctype);
+        controllers.insert(gid, ControllerState {
+            info: ControllerInfo {
+                id: sid,
+                name,
+                os_name,
+                controller_type: ctype,
+                vendor_id: vid,
+                product_id: pid,
+                button_prompts: prompts,
+                is_active: true,
+            },
+            mapping: get_default_mapping(ctype),
+            prev_buttons: HashMap::new(),
+            left_stick_x: 0.0,
+            left_stick_y: 0.0,
+        });
+        if active_id.is_none() {
+            active_id = Some(gid);
+        }
+    }
+
+    log::info!("[Controller] controller_thread started, entering event loop ({} controller(s) seeded)", controllers.len());
     loop {
         while let Ok(req) = rx.try_recv() {
             match req.cmd {

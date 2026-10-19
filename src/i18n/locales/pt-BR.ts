@@ -119,6 +119,8 @@ const ptBR: Messages = {
   game: {
     neverPlayed: "Nunca jogado",
     installed: "Instalado",
+    daysPlayed: "Dias jogados",
+    sessions: "Sessões",
     addToFavorites: "Adicionar aos favoritos",
     removeFromFavorites: "Remover dos favoritos",
   },
@@ -225,6 +227,8 @@ const ptBR: Messages = {
     playTimeZero: "0h",
     playTimeHours: "{hours}h",
     playTimeMinutes: "{minutes}min",
+    daysCount: plural({ one: "{count} dia", other: "{count} dias" }),
+    sessionsCount: plural({ one: "{count} sessão", other: "{count} sessões" }),
     playTimeHoursMinutes: "{hours}h {minutes}min",
     sizeBytes: "{value} B",
     sizeGb: "{value} GB",

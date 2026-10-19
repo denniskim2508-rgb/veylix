@@ -171,6 +171,7 @@ export function buildMenuData(ctx: MenuContext): MenuItemData[] {
     {
       id: "fullscreen",
       label: t("menu.switchToFullscreen"),
+      shortcut: "F11",
       action: () => { ctx.onSwitchFullscreen(); ctx.onClose(); },
     },
     {

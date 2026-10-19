@@ -78,6 +78,7 @@ export function useGameDetailActions(game: Game | null) {
         .replace("{{default_args}}", args)
         .replace("{{core}}", corePath);
       await invoke("launch_game", {
+        gameId: game.id,
         launchCommand,
         executablePath: null,
       });

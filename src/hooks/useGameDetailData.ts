@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type { Game, PlaySession, EmulatorProfile } from "../types";
 import { ArtworkType } from "../types";
 import { useArtwork } from "./useArtwork";
+import { useStore } from "../store/useStore";
 import { resolveShotUrl, mergeScreenshots, type ScreenshotItem } from "../utils/screenshots";
 import { calculateDaysPlayed } from "../utils/format";
 
@@ -40,6 +41,7 @@ export function useGameDetailData(game: Game | null): GameDetailData {
 
   const isEmulatorGame = game?.platform === "emulator";
   const gameId = game?.id ?? null;
+  const playtimeVersion = useStore((s) => s.playtimeVersion);
 
   useEffect(() => {
     setResolvedUrls({});
@@ -62,7 +64,7 @@ export function useGameDetailData(game: Game | null): GameDetailData {
         .then(setCompatibleEmulators)
         .catch(() => setCompatibleEmulators([]));
     }
-  }, [gameId, isEmulatorGame]);
+  }, [gameId, isEmulatorGame, playtimeVersion]);
 
   useEffect(() => {
     if (!gameId) return;

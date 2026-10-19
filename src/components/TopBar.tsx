@@ -372,18 +372,20 @@ export function TopBar({
                     handleSwitchFullscreen();
                     setIsExtraOpen(false);
                   }}
-                  className="w-full px-4 py-2 text-sm text-text-primary hover:bg-bg-hover text-left"
+                  className="w-full flex items-center justify-between gap-3 px-4 py-2 text-sm text-text-primary hover:bg-bg-hover text-left"
                 >
-                  {t("topbar.toggleFullscreen")}
+                  <span>{t("topbar.toggleFullscreen")}</span>
+                  <span className="text-xs text-text-muted">F11</span>
                 </button>
                 <button
                   onClick={() => {
                     useConsoleStore.getState().enterConsole();
                     setIsExtraOpen(false);
                   }}
-                  className="w-full px-4 py-2 text-sm text-text-primary hover:bg-bg-hover text-left"
+                  className="w-full flex items-center justify-between gap-3 px-4 py-2 text-sm text-text-primary hover:bg-bg-hover text-left"
                 >
-                  {t("topbar.switchToConsoleMode")}
+                  <span>{t("topbar.switchToConsoleMode")}</span>
+                  <span className="text-xs text-text-muted">Ctrl+C</span>
                 </button>
                 <div className="my-1 border-t border-border" />
                 <button

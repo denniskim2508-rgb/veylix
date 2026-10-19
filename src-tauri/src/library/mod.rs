@@ -1,6 +1,7 @@
 pub mod models;
 pub mod games;
 pub mod sessions;
+pub mod playtime;
 pub mod screenshots;
 pub mod artwork;
 pub mod image_download;
