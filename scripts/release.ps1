@@ -176,7 +176,10 @@ $manifest = [ordered]@{
     }
 }
 $manifestPath = Join-Path $outDir "latest.json"
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+# Write UTF-8 WITHOUT a BOM: the updater parses the response with serde_json,
+# which rejects a leading byte-order mark ("expected value at line 1 column 1").
+$manifestJson = $manifest | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
 
 Copy-Item $exe.FullName (Join-Path $outDir $exe.Name) -Force
 Copy-Item $sigPath (Join-Path $outDir "$($exe.Name).sig") -Force
