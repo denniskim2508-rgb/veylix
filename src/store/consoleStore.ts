@@ -28,6 +28,11 @@ interface ConsoleStore {
   settingsLoaded: boolean;
   startupMode: StartupMode;
   activeMode: ActiveMode;
+  // Launch-session state: while a game is running, controller input and UI
+  // sounds are suppressed. Cleared when the game exits.
+  activeGameId: number | null;
+  isLaunching: boolean;
+  gameExitedAt: number;
   lastMode: ActiveMode;
   cardSize: ConsoleCardSize;
   uiStyle: ConsoleUiStyle;
@@ -61,6 +66,9 @@ interface ConsoleStore {
   setUiSoundVolume: (volume: number) => Promise<void>;
   enterConsole: () => Promise<void>;
   exitConsole: () => Promise<void>;
+  setActiveGame: (gameId: number | null) => void;
+  setLaunching: (launching: boolean) => void;
+  markGameExited: () => void;
 }
 
 const DEFAULT_VOLUME = 70;
@@ -69,6 +77,9 @@ export const useConsoleStore = create<ConsoleStore>((set) => ({
   settingsLoaded: false,
   startupMode: "desktop",
   activeMode: "desktop",
+  activeGameId: null,
+  isLaunching: false,
+  gameExitedAt: 0,
   lastMode: "console",
   cardSize: "large",
   uiStyle: "standard",
@@ -196,6 +207,9 @@ export const useConsoleStore = create<ConsoleStore>((set) => ({
     await invoke("set_app_setting", { key: KEY_LAST_MODE, value: "desktop" });
     set({ activeMode: "desktop", lastMode: "desktop" });
   },
+  setActiveGame: (gameId) => set({ activeGameId: gameId }),
+  setLaunching: (launching) => set({ isLaunching: launching }),
+  markGameExited: () => set({ activeGameId: null, isLaunching: false, gameExitedAt: Date.now() }),
 }));
 
 export function isConsoleActive(): boolean {

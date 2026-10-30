@@ -51,6 +51,19 @@ class UiAudio {
   private buffers = new Map<UiSoundName, AudioBuffer>();
   private active = new Map<UiSoundName, AudioBufferSourceNode>();
   private lastPlayed = new Map<UiSoundName, number>();
+  private gameRunning = false;
+
+  /** Suppress all UI sounds while a game is in the foreground. */
+  setGameRunning(running: boolean): void {
+    this.gameRunning = running;
+    if (running) {
+      // Stop any currently ringing sound.
+      for (const src of this.active.values()) {
+        try { src.stop(); } catch { /* already stopped */ }
+      }
+      this.active.clear();
+    }
+  }
 
   /** Create/resume the shared context. Called on first user gesture + play. */
   ensureUnlocked(): void {
@@ -68,6 +81,7 @@ class UiAudio {
   }
 
   async playUiSound(name: UiSoundName, force = false): Promise<void> {
+    if (this.gameRunning) return;
     const s = useConsoleStore.getState();
     if (!force) {
       if (!s.uiSoundsEnabled) return;

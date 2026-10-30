@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Machine-local cargo config (redirects the build cache out of OneDrive)
+.cargo/
+
 # Updater signing keys and staged release artifacts (NEVER commit these)
 *.key
 *.pem

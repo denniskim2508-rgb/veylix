@@ -166,6 +166,16 @@ pub fn track_session(app: AppHandle, game_id: i64, image_name: String, started_a
             std::thread::sleep(PROCESS_APPEAR_INTERVAL);
         }
 
+        // Notify the frontend that the game process actually appeared, so it
+        // can mark the session as active (and keep controller input paused).
+        let _ = app.emit(
+            "play://session-started",
+            serde_json::json!({
+                "gameId": game_id,
+                "startedAt": started_at,
+            }),
+        );
+
         let play_start = Instant::now();
         while is_process_running(&image_name) {
             std::thread::sleep(PROCESS_POLL_INTERVAL);

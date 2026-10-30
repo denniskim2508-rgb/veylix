@@ -69,6 +69,8 @@ function ControllerInputBridge() {
 
   const onAction = useCallback((action: GamehubAction, pressed: boolean) => {
     if (!pressed) { return; }
+    // While a game is running, ignore all controller actions for Veylix.
+    if (useConsoleStore.getState().activeGameId !== null) return;
 
     setInputMethod("controller");
 
@@ -92,6 +94,7 @@ function ControllerInputBridge() {
   }, [handleAction, activeMode, setInputMethod]);
 
   const onAxis = useCallback((_axis: string, value: number) => {
+    if (useConsoleStore.getState().activeGameId !== null) return;
     if (isMenuOpenRef.current && activeMode === "desktop") return;
 
     const threshold = settings.stickThreshold;
@@ -123,6 +126,8 @@ function KeyboardNavigation() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.isTrusted) return;
+      // While a game is running, don't process keyboard navigation.
+      if (useConsoleStore.getState().activeGameId !== null) return;
 
       // Don't intercept when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;

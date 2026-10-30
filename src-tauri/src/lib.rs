@@ -93,22 +93,35 @@ fn launch_game(
     launch_command: String,
     executable_path: Option<String>,
 ) -> Result<(), String> {
-    launcher::launch_game(&launch_command, executable_path.as_deref())?;
-
-    if let Some(game_id) = game_id {
-        if let Some(target) =
-            library::playtime::resolve_watch_target(&launch_command, executable_path.as_deref())
+    // Dedup: only one active launch request per game at a time. A second
+    // invoke for the same game while one is in flight is ignored (idempotent).
+    if let Some(gid) = game_id {
+        static LAUNCHING: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashSet<i64>>> =
+            once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
         {
-            library::playtime::track_session(
-                app,
-                game_id,
-                target,
-                library::playtime::now_iso(),
-            );
+            let mut set = LAUNCHING.lock().unwrap();
+            if !set.insert(gid) {
+                log::info!("[Launch] game {} already launching, ignoring duplicate request", gid);
+                return Ok(());
+            }
         }
+
+        let result = (|| {
+            launcher::launch_game(&launch_command, executable_path.as_deref())?;
+            if let Some(target) =
+                library::playtime::resolve_watch_target(&launch_command, executable_path.as_deref())
+            {
+                library::playtime::track_session(app, gid, target, library::playtime::now_iso());
+            }
+            Ok(())
+        })();
+
+        // Always clear the in-flight flag, whether launch succeeded or failed.
+        LAUNCHING.lock().unwrap().remove(&gid);
+        return result;
     }
 
-    Ok(())
+    launcher::launch_game(&launch_command, executable_path.as_deref())
 }
 
 #[tauri::command]

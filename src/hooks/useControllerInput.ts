@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { GamepadChannelEvent, GamehubAction, ControllerInfo } from "../types/controller";
 import { useControllerStore } from "../store/controllerStore";
+import { useConsoleStore } from "../store/consoleStore";
 
 export function useControllerInput(
   onAction: (action: GamehubAction, pressed: boolean) => void,
@@ -37,6 +38,12 @@ export function useControllerInput(
 
     const poll = async () => {
       if (!running) return;
+      // While a game is running, do not consume controller events for Veylix
+      // navigation; the game owns the controller.
+      if (useConsoleStore.getState().activeGameId !== null) {
+        rafRef.current = requestAnimationFrame(poll);
+        return;
+      }
       try {
         const events: GamepadChannelEvent[] = await invoke("poll_gamepad_events");
 

@@ -36,8 +36,13 @@ $root = Split-Path $PSScriptRoot -Parent
 $confPath = Join-Path $root "src-tauri\tauri.conf.json"
 $cargoPath = Join-Path $root "src-tauri\Cargo.toml"
 $pkgPath = Join-Path $root "package.json"
-$nsisDir = Join-Path $root "src-tauri\target\release\bundle\nsis"
 $outDir = Join-Path $root "release"
+
+# Cargo's output dir can be redirected with CARGO_TARGET_DIR (the project keeps
+# it outside the OneDrive tree so the multi-GB build cache is not synced).
+# Honour it here, otherwise the bundle is not where we look for it.
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root "src-tauri\target" }
+$nsisDir = Join-Path $targetDir "release\bundle\nsis"
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 

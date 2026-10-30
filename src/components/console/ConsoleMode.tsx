@@ -149,13 +149,80 @@ export function ConsoleMode() {
     };
   }, []);
 
+  // Track game exit so controller input + UI sounds resume.
+  useEffect(() => {
+    let unlistenEnded: (() => void) | null = null;
+    let unlistenStarted: (() => void) | null = null;
+
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlistenEnded = await listen<{ gameId: number }>("play://session-ended", (e) => {
+        const gid = e.payload?.gameId;
+        const store = useConsoleStore.getState();
+        if (store.activeGameId !== null && (gid === undefined || gid === store.activeGameId)) {
+          store.markGameExited();
+          uiAudio.setGameRunning(false);
+        }
+      });
+      unlistenStarted = await listen<{ gameId: number }>("play://session-started", () => {
+        // Process appeared; nothing extra needed, activeGameId already set.
+      });
+    })();
+
+    // Backup for untracked launches (protocol URLs): resume when the window
+    // regains visibility after being hidden by the game.
+    let wasHidden = false;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+        return;
+      }
+      if (document.visibilityState === "visible" && wasHidden) {
+        wasHidden = false;
+        const store = useConsoleStore.getState();
+        if (store.activeGameId !== null) {
+          store.markGameExited();
+          uiAudio.setGameRunning(false);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    const onFocus = () => {
+      if (!wasHidden) return;
+      wasHidden = false;
+      const store = useConsoleStore.getState();
+      if (store.activeGameId !== null) {
+        store.markGameExited();
+        uiAudio.setGameRunning(false);
+      }
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      if (unlistenEnded) unlistenEnded();
+      if (unlistenStarted) unlistenStarted();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
   const handlePlay = useCallback(async (game: Game | null) => {
     if (!game) return;
+
+    const store = useConsoleStore.getState();
+    // Dedup: ignore if a launch is already in flight or a game is running.
+    if (store.isLaunching) return;
+    if (store.activeGameId !== null) return;
+    // Cooldown after a game exits to avoid relaunch from queued button events.
+    if (Date.now() - store.gameExitedAt < 1000) return;
+
     if (!game.launchCommand && !game.executablePath) {
       console.warn("No executable for game:", game.title);
       void uiAudio.playUiSound("error");
       return;
     }
+
+    store.setLaunching(true);
     try {
       if (game.launchCommand) {
         await invoke("launch_game", {
@@ -170,10 +237,16 @@ export function ConsoleMode() {
           executablePath: null,
         });
       }
+      // Launch accepted by the OS: clear the in-flight flag and mark the game
+      // as running so controller input + UI sounds are suppressed.
+      useConsoleStore.getState().setLaunching(false);
+      useConsoleStore.getState().setActiveGame(game.id);
+      uiAudio.setGameRunning(true);
       void uiAudio.playUiSound("launch");
     } catch (err) {
       console.error(`Launch failed: ${game.title}`, err);
       void uiAudio.playUiSound("error");
+      useConsoleStore.getState().setLaunching(false);
     }
   }, []);
 
