@@ -44,7 +44,7 @@ regex = "1"
 gilrs = "0.11.2"
 
 [target.'cfg(windows)'.dependencies]
-gilrs = { version = "0.11.2", default-features = false, features = ["xinput"] }
+gilrs = { version = "0.11.2", default-features = false, features = ["wgi"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Storage_FileSystem",
     "Win32_Foundation",
