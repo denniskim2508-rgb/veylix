@@ -9,6 +9,7 @@ export function useControllerInput(
   onAxis: (axis: string, value: number) => void,
 ) {
   const prevButtons = useRef<Map<string, boolean>>(new Map());
+  const postGameBaseline = useRef<boolean>(false);
   const { setConnected, setControllers, setActiveController, setInputMethod, settings } = useControllerStore();
   const onActionRef = useRef(onAction);
   const onAxisRef = useRef(onAxis);
@@ -38,9 +39,16 @@ export function useControllerInput(
 
     const poll = async () => {
       if (!running) return;
-      // While a game is running, do not consume controller events for Veylix
+      // While a game is running or launching, do not consume controller events for Veylix
       // navigation; the game owns the controller.
-      if (useConsoleStore.getState().activeGameId !== null) {
+      const s = useConsoleStore.getState();
+      if (s.activeGameId !== null || s.sessionState !== "idle") {
+        rafRef.current = requestAnimationFrame(poll);
+        return;
+      }
+      if (Date.now() - s.gameExitedAt < 1500) {
+        postGameBaseline.current = true;
+        prevButtons.current.clear();
         rafRef.current = requestAnimationFrame(poll);
         return;
       }
@@ -72,6 +80,11 @@ export function useControllerInput(
             }
             case "action": {
               const key = `${event.id}-${event.action}`;
+              if (postGameBaseline.current) {
+                // Establish baseline without firing actions.
+                prevButtons.current.set(key, event.pressed);
+                break;
+              }
               const wasPressed = prevButtons.current.get(key) || false;
 
               if (event.pressed && !wasPressed) {
@@ -96,6 +109,10 @@ export function useControllerInput(
         console.warn("Controller polling error:", err);
       }
 
+      if (postGameBaseline.current) {
+        // Baseline established after first post-game poll.
+        postGameBaseline.current = false;
+      }
       rafRef.current = requestAnimationFrame(poll);
     };
 

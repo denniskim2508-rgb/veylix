@@ -91,9 +91,11 @@ export function GameCarousel({
   onSelect,
   onActivate,
 }: GameCarouselProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const cardWidth = CARD_WIDTHS[cardSize];
   const step = cardWidth + GAP;
+  const scaledHeight = Math.ceil(cardWidth * 1.5 * 1.12) + 24;
 
   const start = Math.max(0, selectedIndex - RENDER_PAD);
   const end = Math.min(games.length, selectedIndex + RENDER_PAD + 1);
@@ -107,27 +109,41 @@ export function GameCarousel({
   }, [start, end, games]);
 
   const handleTranslate = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    const center = el.clientWidth / 2 - cardWidth / 2;
-    el.style.transform = `translateX(calc(-${selectedIndex * step}px + ${center}px))`;
+    const outer = outerRef.current;
+    const track = trackRef.current;
+    if (!outer || !track) return;
+    const center = outer.clientWidth / 2 - cardWidth / 2;
+    track.style.transform = `translateX(calc(-${selectedIndex * step}px + ${center}px))`;
   };
 
   useEffect(() => {
     requestAnimationFrame(() => handleTranslate());
   });
 
+  // Re-measure on resize so centering stays correct across resolutions.
+  useEffect(() => {
+    const outer = outerRef.current;
+    if (!outer) return;
+    const ro = new ResizeObserver(() => requestAnimationFrame(() => handleTranslate()));
+    ro.observe(outer);
+    return () => ro.disconnect();
+  }, [selectedIndex, step, cardWidth]);
+
   return (
-    <div className="relative w-full" style={{ height: cardWidth * 1.5 + 36 }}>
+    <div
+      ref={outerRef}
+      className="relative w-full overflow-visible"
+      style={{ height: scaledHeight }}
+    >
       <div
-        ref={containerRef}
-        className="absolute left-0 top-0 will-change-transform transition-transform duration-300 ease-out"
+        ref={trackRef}
+        className="absolute left-0 top-0 will-change-transform transition-transform duration-300 ease-out overflow-visible"
         style={{ width: 0 }}
       >
         {visible.map(({ game, index }) => (
           <div
             key={`${game.id}-slot`}
-            className="absolute top-0"
+            className="absolute top-0 overflow-visible"
             style={{ left: index * step, width: cardWidth, height: cardWidth * 1.5 }}
           >
             <CarouselCard

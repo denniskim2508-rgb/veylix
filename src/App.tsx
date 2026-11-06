@@ -69,8 +69,10 @@ function ControllerInputBridge() {
 
   const onAction = useCallback((action: GamehubAction, pressed: boolean) => {
     if (!pressed) { return; }
-    // While a game is running, ignore all controller actions for Veylix.
-    if (useConsoleStore.getState().activeGameId !== null) return;
+    // While a game is running or launching, ignore all controller actions for Veylix.
+    const s = useConsoleStore.getState();
+    if (s.activeGameId !== null || s.sessionState !== "idle") return;
+    if (Date.now() - s.gameExitedAt < 1500) return;
 
     setInputMethod("controller");
 
@@ -94,7 +96,9 @@ function ControllerInputBridge() {
   }, [handleAction, activeMode, setInputMethod]);
 
   const onAxis = useCallback((_axis: string, value: number) => {
-    if (useConsoleStore.getState().activeGameId !== null) return;
+    const s = useConsoleStore.getState();
+    if (s.activeGameId !== null || s.sessionState !== "idle") return;
+    if (Date.now() - s.gameExitedAt < 1500) return;
     if (isMenuOpenRef.current && activeMode === "desktop") return;
 
     const threshold = settings.stickThreshold;
@@ -126,8 +130,10 @@ function KeyboardNavigation() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.isTrusted) return;
-      // While a game is running, don't process keyboard navigation.
-      if (useConsoleStore.getState().activeGameId !== null) return;
+      // While a game is running or launching, don't process keyboard navigation.
+      const s = useConsoleStore.getState();
+      if (s.activeGameId !== null || s.sessionState !== "idle") return;
+      if (Date.now() - s.gameExitedAt < 1500) return;
 
       // Don't intercept when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;

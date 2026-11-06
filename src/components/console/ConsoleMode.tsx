@@ -20,6 +20,7 @@ import { WallpaperPickerModal } from "./WallpaperPickerModal";
 import { ConsoleMoreMenu } from "./ConsoleMoreMenu";
 import { TrailerManagerModal } from "../TrailerManagerModal";
 import { MetadataProvidersModal } from "../MetadataProvidersModal";
+import { GameLoadingScreen } from "./GameLoadingScreen";
 
 type FocusArea = "nav" | "carousel" | "actions";
 type Overlay = "quick" | "search" | "settings" | "more" | "trailer" | "providers" | "wallpaper-static" | "wallpaper-live" | null;
@@ -48,6 +49,9 @@ export function ConsoleMode() {
   const setLiveWallpaper = useConsoleStore((s) => s.setLiveWallpaper);
   const exitConsole = useConsoleStore((s) => s.exitConsole);
   const getButtonLabel = useControllerStore((s) => s.getButtonLabel);
+  const sessionState = useConsoleStore((s) => s.sessionState);
+  const launchingGame = useConsoleStore((s) => s.launchingGame);
+  const sessionError = useConsoleStore((s) => s.sessionError);
   const { t, tp } = useT();
 
   const [section, setSection] = useState<string>("all");
@@ -149,51 +153,108 @@ export function ConsoleMode() {
     };
   }, []);
 
+  // Re-apply fullscreen when returning from a game, since launching a game
+  // can take the window out of fullscreen (Windows restores normal windowed
+  // mode when focus moves to the game).
+  useEffect(() => {
+    if (sessionState === "running" || sessionState === "returning") return;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        if (!(await win.isFullscreen())) {
+          await win.setFullscreen(true);
+        }
+      } catch (err) {
+        console.warn("Console fullscreen re-apply failed:", err);
+      }
+    })();
+  }, [sessionState]);
+
   // Track game exit so controller input + UI sounds resume.
   useEffect(() => {
     let unlistenEnded: (() => void) | null = null;
     let unlistenStarted: (() => void) | null = null;
+    let unlistenWindowReady: (() => void) | null = null;
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
       unlistenEnded = await listen<{ gameId: number }>("play://session-ended", (e) => {
+        console.log("[LoadingScreen] session-ended received", e.payload);
         const gid = e.payload?.gameId;
         const store = useConsoleStore.getState();
         if (store.activeGameId !== null && (gid === undefined || gid === store.activeGameId)) {
-          store.markGameExited();
+          console.log("[LoadingScreen] game exited, ending session");
+          // Game exited - immediately return to Console Mode, no loading screen
+          store.endSession();
           uiAudio.setGameRunning(false);
+          setOverlay(null);
+          return;
+        }
+        if (store.sessionState === "launching" || store.sessionState === "loading") {
+          console.log("[LoadingScreen] session ended during launch");
+          store.setSessionError("Game failed to start or exited unexpectedly");
+          setTimeout(() => {
+            useConsoleStore.getState().endSession();
+            uiAudio.setGameRunning(false);
+          }, 2000);
         }
       });
       unlistenStarted = await listen<{ gameId: number }>("play://session-started", () => {
-        // Process appeared; nothing extra needed, activeGameId already set.
+        console.log("[LoadingScreen] session-started received");
+        const store = useConsoleStore.getState();
+        if (store.sessionState === "launching") {
+          console.log("[LoadingScreen] transitioning launching -> loading");
+          store.setSessionState("loading");
+        }
+      });
+      unlistenWindowReady = await listen<{ gameId: number }>("play://game-window-ready", () => {
+        console.log("[LoadingScreen] game-window-ready received");
+        const store = useConsoleStore.getState();
+        if (store.sessionState === "loading") {
+          console.log("[LoadingScreen] transitioning loading -> running");
+          // Only dismiss loading screen when the actual game window is ready
+          store.setSessionState("running");
+        } else {
+          console.log("[LoadingScreen] ignoring, current state:", store.sessionState);
+        }
       });
     })();
 
-    // Backup for untracked launches (protocol URLs): resume when the window
-    // regains visibility after being hidden by the game.
-    let wasHidden = false;
+    // Backup for untracked launches (protocol URLs): only resume when the game
+    // has actually exited. Don't trigger during launch or while game is starting.
+    let wasHiddenDuringGame = false;
     const onVisibility = () => {
+      const store = useConsoleStore.getState();
       if (document.visibilityState === "hidden") {
-        wasHidden = true;
+        // Game window came to foreground: Veylix is now in background.
+        if (store.sessionState === "launching" || store.sessionState === "loading") {
+          console.log("[LoadingScreen] visibility hidden during launch -> running");
+          store.setSessionState("running");
+          uiAudio.setGameRunning(true);
+        }
+        if (store.sessionState === "running") {
+          wasHiddenDuringGame = true;
+        }
         return;
       }
-      if (document.visibilityState === "visible" && wasHidden) {
-        wasHidden = false;
-        const store = useConsoleStore.getState();
-        if (store.activeGameId !== null) {
-          store.markGameExited();
-          uiAudio.setGameRunning(false);
-        }
+      if (document.visibilityState === "visible" && wasHiddenDuringGame && store.sessionState === "running") {
+        wasHiddenDuringGame = false;
+        // Only end session if game was running and window comes back visible
+        // This indicates game exited
+        store.endSession();
+        uiAudio.setGameRunning(false);
+        setOverlay(null);
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     const onFocus = () => {
-      if (!wasHidden) return;
-      wasHidden = false;
       const store = useConsoleStore.getState();
-      if (store.activeGameId !== null) {
-        store.markGameExited();
+      if (wasHiddenDuringGame && store.sessionState === "running") {
+        wasHiddenDuringGame = false;
+        store.endSession();
         uiAudio.setGameRunning(false);
+        setOverlay(null);
       }
     };
     window.addEventListener("focus", onFocus);
@@ -201,6 +262,7 @@ export function ConsoleMode() {
     return () => {
       if (unlistenEnded) unlistenEnded();
       if (unlistenStarted) unlistenStarted();
+      if (unlistenWindowReady) unlistenWindowReady();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
@@ -211,7 +273,9 @@ export function ConsoleMode() {
 
     const store = useConsoleStore.getState();
     // Dedup: ignore if a launch is already in flight or a game is running.
-    if (store.isLaunching) return;
+    if (store.isLaunching || store.sessionState !== "idle") return;
+    // Clear any open overlay so it doesn't reappear after the game exits.
+    setOverlay(null);
     if (store.activeGameId !== null) return;
     // Cooldown after a game exits to avoid relaunch from queued button events.
     if (Date.now() - store.gameExitedAt < 1000) return;
@@ -222,6 +286,9 @@ export function ConsoleMode() {
       return;
     }
 
+    console.log("[LoadingScreen] handlePlay startLaunch");
+    store.startLaunch(game);
+    console.log("[LoadingScreen] after startLaunch - state:", useConsoleStore.getState().sessionState);
     store.setLaunching(true);
     try {
       if (game.launchCommand) {
@@ -237,16 +304,25 @@ export function ConsoleMode() {
           executablePath: null,
         });
       }
-      // Launch accepted by the OS: clear the in-flight flag and mark the game
-      // as running so controller input + UI sounds are suppressed.
-      useConsoleStore.getState().setLaunching(false);
-      useConsoleStore.getState().setActiveGame(game.id);
+          // Launch accepted by the OS: clear the in-flight flag and keep loading screen visible
+      // until actual game window is ready
+      console.log("[LoadingScreen] launch successful, setting loading state");
+      const s = useConsoleStore.getState();
+      s.setLaunching(false);
+      s.setActiveGame(game.id);
+      s.setSessionState("loading");
+      console.log("[LoadingScreen] after setState - sessionState:", useConsoleStore.getState().sessionState);
       uiAudio.setGameRunning(true);
       void uiAudio.playUiSound("launch");
     } catch (err) {
       console.error(`Launch failed: ${game.title}`, err);
       void uiAudio.playUiSound("error");
       useConsoleStore.getState().setLaunching(false);
+      useConsoleStore.getState().setSessionError(String(err));
+      setTimeout(() => {
+        useConsoleStore.getState().endSession();
+        uiAudio.setGameRunning(false);
+      }, 3000);
     }
   }, []);
 
@@ -282,6 +358,10 @@ export function ConsoleMode() {
 
   // ── Main navigation reducer ────────────────────────────────────────────
   const reduceMain = useCallback((action: GamehubAction) => {
+    const store = useConsoleStore.getState();
+    if (store.sessionState !== "idle") return;
+    // Cooldown after a game exits to swallow queued/stray inputs.
+    if (Date.now() - store.gameExitedAt < 1500) return;
     const n = navItems.length;
 
     if (focusArea === "nav") {
@@ -364,6 +444,9 @@ export function ConsoleMode() {
   // ── Physical keyboard → same reducer ───────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const st = useConsoleStore.getState();
+      if (st.sessionState !== "idle") return;
+      if (Date.now() - st.gameExitedAt < 1500) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (overlay) return;
@@ -425,6 +508,27 @@ export function ConsoleMode() {
 
   const handleMoreClose = () => setOverlay(null);
   const handleOverlayClose = () => setOverlay(null);
+
+  // During gameplay (running) or returning, Veylix is completely inactive:
+  // render a black screen only, no UI, no sounds, no animations.
+  if (sessionState === "running" || sessionState === "returning") {
+    return <div className="fixed inset-0 z-[80] bg-black" />;
+  }
+
+  // Show loading screen ONLY during game launch (launching/loading). 
+  // Once game is running or when exiting, return to Console Mode immediately.
+  if ((sessionState === "launching" || sessionState === "loading") && launchingGame) {
+    return (
+      <GameLoadingScreen
+        game={launchingGame}
+        error={sessionError}
+        onCancel={() => {
+          useConsoleStore.getState().endSession();
+          uiAudio.setGameRunning(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[80] bg-black overflow-hidden select-none">

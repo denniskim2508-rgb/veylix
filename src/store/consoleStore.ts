@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import type { StartupMode, ConsoleCardSize, ConsoleWallpaperMode, ConsoleUiStyle } from "../types";
+import type { StartupMode, ConsoleCardSize, ConsoleWallpaperMode, ConsoleUiStyle, Game } from "../types";
+
+export type GameSessionState = "idle" | "launching" | "loading" | "running" | "returning";
 
 const KEY_STARTUP_MODE = "startup_mode";
 const KEY_LAST_MODE = "last_mode";
@@ -33,6 +35,9 @@ interface ConsoleStore {
   activeGameId: number | null;
   isLaunching: boolean;
   gameExitedAt: number;
+  sessionState: GameSessionState;
+  launchingGame: Game | null;
+  sessionError: string | null;
   lastMode: ActiveMode;
   cardSize: ConsoleCardSize;
   uiStyle: ConsoleUiStyle;
@@ -69,6 +74,10 @@ interface ConsoleStore {
   setActiveGame: (gameId: number | null) => void;
   setLaunching: (launching: boolean) => void;
   markGameExited: () => void;
+  startLaunch: (game: Game) => void;
+  setSessionState: (state: GameSessionState) => void;
+  setSessionError: (err: string | null) => void;
+  endSession: () => void;
 }
 
 const DEFAULT_VOLUME = 70;
@@ -80,6 +89,9 @@ export const useConsoleStore = create<ConsoleStore>((set) => ({
   activeGameId: null,
   isLaunching: false,
   gameExitedAt: 0,
+  sessionState: "idle",
+  launchingGame: null,
+  sessionError: null,
   lastMode: "console",
   cardSize: "large",
   uiStyle: "standard",
@@ -209,7 +221,11 @@ export const useConsoleStore = create<ConsoleStore>((set) => ({
   },
   setActiveGame: (gameId) => set({ activeGameId: gameId }),
   setLaunching: (launching) => set({ isLaunching: launching }),
-  markGameExited: () => set({ activeGameId: null, isLaunching: false, gameExitedAt: Date.now() }),
+  markGameExited: () => set({ activeGameId: null, isLaunching: false, gameExitedAt: Date.now(), sessionState: "idle", launchingGame: null, sessionError: null }),
+  startLaunch: (game) => { console.log("[Store] startLaunch called"); set({ sessionState: "launching", launchingGame: game, sessionError: null }); },
+  setSessionState: (state) => set({ sessionState: state }),
+  setSessionError: (err) => set({ sessionError: err }),
+  endSession: () => set({ activeGameId: null, isLaunching: false, gameExitedAt: Date.now(), sessionState: "idle", launchingGame: null, sessionError: null }),
 }));
 
 export function isConsoleActive(): boolean {
