@@ -15,6 +15,9 @@ import { ControllerSettingsModal } from "./ControllerSettingsModal";
 import { SettingsModal } from "./SettingsModal";
 import { AddonModal } from "./addons/AddonModal";
 import { useStore } from "../store/useStore";
+import { useConsoleStore } from "../store/consoleStore";
+import { uiAudio } from "../utils/uiAudio";
+import { GameLoadingScreen } from "./console/GameLoadingScreen";
 import { useNavigation } from "./NavigationProvider";
 import { useT, currentLocale } from "../i18n";
 import { formatPlayTime } from "../utils/format";
@@ -57,6 +60,10 @@ export function Layout() {
   const prevViewMode = useRef(viewMode);
   const isScanningRef = useRef(false);
 
+  const sessionState = useConsoleStore((st) => st.sessionState);
+  const launchingGame = useConsoleStore((st) => st.launchingGame);
+  const sessionError = useConsoleStore((st) => st.sessionError);
+
   useEffect(() => {
     if (viewMode === "grid" && !selectedGame) {
       setActiveRegion("gamegrid");
@@ -78,6 +85,7 @@ export function Layout() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (useConsoleStore.getState().sessionState !== "idle") return;
       if (e.key === "Escape") {
         // Try navigation manager first (for controller-triggered escapes)
         if (goBack()) return;
@@ -102,30 +110,88 @@ export function Layout() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showControllerDiagnostics, showAddonModal, showMetadataProvidersModal, showRomScanFoldersModal, showEmulatorModal, showScanFoldersModal, showAddModal, showSettingsModal, showControllerSettings, selectedGame, viewMode, setSelectedGame, goBack]);
 
+  // Track game lifecycle in desktop mode so the UI goes inactive during gameplay.
+  useEffect(() => {
+    let unlistenEnded: (() => void) | null = null;
+    let unlistenStarted: (() => void) | null = null;
+    let unlistenWindowReady: (() => void) | null = null;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlistenEnded = await listen<{ gameId: number }>("play://session-ended", (e) => {
+        const gid = e.payload?.gameId;
+        const store = useConsoleStore.getState();
+        if (store.activeGameId !== null && (gid === undefined || gid === store.activeGameId)) {
+          store.endSession();
+          uiAudio.setGameRunning(false);
+          return;
+        }
+        if (store.sessionState === "launching" || store.sessionState === "loading") {
+          store.setSessionError("Game failed to start or exited unexpectedly");
+          setTimeout(() => {
+            useConsoleStore.getState().endSession();
+            uiAudio.setGameRunning(false);
+          }, 2000);
+        }
+      });
+      unlistenStarted = await listen<{ gameId: number }>("play://session-started", () => {
+        const store = useConsoleStore.getState();
+        if (store.sessionState === "launching") store.setSessionState("loading");
+      });
+      unlistenWindowReady = await listen<{ gameId: number }>("play://game-window-ready", () => {
+        const store = useConsoleStore.getState();
+        if (store.sessionState === "loading") store.setSessionState("running");
+      });
+    })();
+    return () => {
+      if (unlistenEnded) unlistenEnded();
+      if (unlistenStarted) unlistenStarted();
+      if (unlistenWindowReady) unlistenWindowReady();
+    };
+  }, []);
+
   const filteredGames = getFilteredGames();
 
-  const handlePlay = (game: Game) => {
-    if (game.launchCommand) {
-      invoke("launch_game", {
-        gameId: game.id,
-        launchCommand: game.launchCommand,
-        executablePath: game.executablePath,
-      }).catch((err) => {
-        console.error("Launch failed:", err);
-        alert(`Failed to launch ${game.title}: ${err}`);
-      });
-    } else if (game.executablePath) {
-      invoke("launch_game", {
-        gameId: game.id,
-        launchCommand: game.executablePath,
-        executablePath: null,
-      }).catch((err) => {
-        console.error("Launch failed:", err);
-        alert(`Failed to launch ${game.title}: ${err}`);
-      });
-    } else {
+  const handlePlay = async (game: Game) => {
+    if (!game.launchCommand && !game.executablePath) {
       console.warn("No launch command or executable path for game:", game.title);
       alert(`Cannot launch ${game.title}: no executable found. Try re-scanning your library.`);
+      return;
+    }
+    const store = useConsoleStore.getState();
+    if (store.isLaunching || store.sessionState !== "idle") return;
+    if (store.activeGameId !== null) return;
+    if (Date.now() - store.gameExitedAt < 1000) return;
+
+    store.startLaunch(game);
+    store.setLaunching(true);
+    try {
+      if (game.launchCommand) {
+        await invoke("launch_game", {
+          gameId: game.id,
+          launchCommand: game.launchCommand,
+          executablePath: game.executablePath,
+        });
+      } else {
+        await invoke("launch_game", {
+          gameId: game.id,
+          launchCommand: game.executablePath,
+          executablePath: null,
+        });
+      }
+      const s = useConsoleStore.getState();
+      s.setLaunching(false);
+      s.setActiveGame(game.id);
+      s.setSessionState("loading");
+      uiAudio.setGameRunning(true);
+    } catch (err) {
+      console.error("Launch failed:", err);
+      alert(`Failed to launch ${game.title}: ${err}`);
+      useConsoleStore.getState().setLaunching(false);
+      useConsoleStore.getState().setSessionError(String(err));
+      setTimeout(() => {
+        useConsoleStore.getState().endSession();
+        uiAudio.setGameRunning(false);
+      }, 3000);
     }
   };
 
@@ -144,6 +210,18 @@ export function Layout() {
       setIsLoading(false);
     }
   };
+
+  // Inactive overlay during gameplay in desktop mode.
+  if (sessionState === "running" || sessionState === "returning") {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-black text-white">
+        <div className="text-sm opacity-60">Game running...</div>
+      </div>
+    );
+  }
+  if ((sessionState === "launching" || sessionState === "loading") && launchingGame) {
+    return <GameLoadingScreen game={launchingGame} error={sessionError} onCancel={() => { useConsoleStore.getState().endSession(); uiAudio.setGameRunning(false); }} />;
+  }
 
   return (
     <div className="h-screen flex flex-col">
