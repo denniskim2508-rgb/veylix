@@ -199,6 +199,10 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                     let mut events = Vec::new();
                     poll_count += 1;
 
+                    if poll_count % 250 == 1 {
+                        log::info!("[Controller] poll #{}: {} controller(s) tracked", poll_count, controllers.len());
+                    }
+
                     while let Some(ev) = gilrs.next_event() {
                         let sid = get_serial_id(ev.id, &mut serial_map, &mut next_serial_id);
                         match ev.event {
@@ -305,7 +309,7 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                         }
                     }
                     if !events.is_empty() {
-                        log::info!("[Controller] poll #{}: {} event(s)", poll_count, events.len());
+                        log::info!("[Controller] poll #{}: {} event(s): {:?}", poll_count, events.len(), events.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>());
                     }
                     let _ = req.resp_tx.send(ControllerResponse::Events(events));
                 }
