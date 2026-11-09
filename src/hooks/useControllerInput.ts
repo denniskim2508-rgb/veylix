@@ -56,6 +56,9 @@ export function useControllerInput(
       }
       try {
         const events: GamepadChannelEvent[] = await invoke("poll_gamepad_events");
+        if (events.length > 0) {
+          console.log("[ControllerInput] received", events.length, "events:", events.map((e) => e.type).join(","));
+        }
 
         for (const event of events) {
           switch (event.type) {

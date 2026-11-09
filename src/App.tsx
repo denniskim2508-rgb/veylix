@@ -69,6 +69,7 @@ function ControllerInputBridge() {
 
   const onAction = useCallback((action: GamehubAction, pressed: boolean) => {
     if (!pressed) { return; }
+    console.log("[ControllerInputBridge] onAction:", action, "activeMode:", activeMode);
     // While a game is running or launching, ignore all controller actions for Veylix.
     const s = useConsoleStore.getState();
     // Safety: if session state is stuck (not idle) but no game is actually running, reset.
