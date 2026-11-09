@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { X, Gamepad2, AlertCircle } from "lucide-react";
 import { useFocusableElement } from "../hooks/useFocusableElement";
 import { useNavigation } from "./NavigationProvider";
-import type { GamepadChannelEvent, GamehubAction } from "../types/controller";
+import type { GamehubAction } from "../types/controller";
 
 interface ControllerDiagnosticsProps {
   onClose: () => void;
@@ -40,7 +40,7 @@ export function ControllerDiagnostics({ onClose }: ControllerDiagnosticsProps) {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [liveInput, setLiveInput] = useState<LiveInput>({ buttons: {}, axes: {} });
   const [events, setEvents] = useState<string[]>([]);
-  const [backend] = useState<string>("WGI (gilrs)");
+  const [backend] = useState<string>("Web Gamepad API (WebView2)");
   const prevButtons = useRef<Map<string, boolean>>(new Map());
   const rafRef = useRef<number>(0);
   const eventLogRef = useRef<HTMLDivElement>(null);
@@ -64,40 +64,29 @@ export function ControllerDiagnostics({ onClose }: ControllerDiagnosticsProps) {
     const poll = async () => {
       if (!running) return;
       try {
-        const [info, evts] = await Promise.all([
-          invoke<DebugInfo>("get_controller_debug_info"),
-          invoke<GamepadChannelEvent[]>("poll_gamepad_events"),
-        ]);
+        const info = await invoke<DebugInfo>("get_controller_debug_info");
         setDebugInfo(info);
 
-        for (const event of evts) {
-          switch (event.type) {
-            case "connected":
-              addEvent(`CONNECTED: "${event.name}" (${event.controllerType}) VID=${event.vendorId} PID=${event.productId}`);
-              break;
-            case "disconnected":
-              addEvent(`DISCONNECTED: controller id=${event.id}`);
-              break;
-            case "action": {
-              const key = `${event.id}-${event.action}`;
-              const wasPressed = prevButtons.current.get(key) || false;
-              if (event.pressed !== wasPressed) {
-                addEvent(`${event.action}: ${event.pressed ? "PRESSED" : "RELEASED"}`);
-              }
-              prevButtons.current.set(key, event.pressed);
-              setLiveInput((prev) => ({
-                ...prev,
-                buttons: { ...prev.buttons, [event.action]: event.pressed },
-              }));
-              break;
+        // Read live input from the Web Gamepad API (reliable in WebView2).
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (const pad of pads) {
+          if (!pad) continue;
+          pad.buttons.forEach((btn, idx) => {
+            const pressed = btn.pressed || btn.value > 0.5;
+            const key = `pad${pad.index}-btn${idx}`;
+            const wasPressed = prevButtons.current.get(key) || false;
+            if (pressed !== wasPressed) {
+              addEvent(`btn${idx}: ${pressed ? "PRESSED" : "RELEASED"}`);
             }
-            case "axisChanged":
-              setLiveInput((prev) => ({
-                ...prev,
-                axes: { ...prev.axes, [event.axis]: event.value },
-              }));
-              break;
-          }
+            prevButtons.current.set(key, pressed);
+          });
+          // Update live input axes
+          const axes: Record<string, number> = {};
+          if (pad.axes.length >= 1) axes["LeftStickX"] = pad.axes[0];
+          if (pad.axes.length >= 2) axes["LeftStickY"] = pad.axes[1];
+          if (pad.axes.length >= 3) axes["RightStickX"] = pad.axes[2];
+          if (pad.axes.length >= 4) axes["RightStickY"] = pad.axes[3];
+          setLiveInput((prev) => ({ ...prev, axes }));
         }
       } catch (err) {
         console.warn("Diagnostics poll error:", err);

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import type { GamepadChannelEvent, GamehubAction, ControllerInfo } from "../types/controller";
+import type { GamehubAction } from "../types/controller";
 import { useControllerStore } from "../store/controllerStore";
 import { useConsoleStore } from "../store/consoleStore";
 
@@ -8,13 +7,13 @@ export function useControllerInput(
   onAction: (action: GamehubAction, pressed: boolean) => void,
   onAxis: (axis: string, value: number) => void,
 ) {
-  const prevButtons = useRef<Map<string, boolean>>(new Map());
-  const postGameBaseline = useRef<boolean>(false);
   const { setConnected, setControllers, setActiveController, setInputMethod, settings } = useControllerStore();
   const onActionRef = useRef(onAction);
   const onAxisRef = useRef(onAxis);
   const settingsRef = useRef(settings);
   const rafRef = useRef<number>(0);
+  const prevButtons = useRef<Map<number, boolean>>(new Map());
+  const postGameBaseline = useRef<boolean>(false);
 
   onActionRef.current = onAction;
   onAxisRef.current = onAxis;
@@ -23,24 +22,56 @@ export function useControllerInput(
   useEffect(() => {
     let running = true;
 
-    // A pad that was already plugged in when the app started never emits a
-    // `connected` event, so fetch the current state once on mount.
-    (async () => {
-      try {
-        const controllers: ControllerInfo[] = await invoke("get_controllers");
-        setControllers(controllers);
-        const active: ControllerInfo | null = await invoke("get_active_controller");
-        setActiveController(active);
-        setConnected(controllers.length > 0);
-      } catch (err) {
-        console.warn("Controller initial fetch error:", err);
+    // Track connected gamepads via the Web Gamepad API (reliable in WebView2).
+    const updateConnection = () => {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      const connected = pads.filter((p) => p !== null).length > 0;
+      setConnected(connected);
+      if (connected) {
+        const list = pads
+          .filter((p): p is Gamepad => p !== null)
+          .map((p) => ({
+            id: p.index,
+            name: p.id,
+            os_name: "Web Gamepad API",
+            controllerType: "Generic",
+            vendorId: null,
+            productId: null,
+            buttonPrompts: {},
+            isActive: true,
+          }));
+        setControllers(list as any);
+        const active = pads.find((p) => p !== null);
+        setActiveController(active ? ({ id: active.index, name: active.id, os_name: "Web Gamepad API", controllerType: "Generic", vendorId: null, productId: null, buttonPrompts: {}, isActive: true } as any) : null);
+      } else {
+        setControllers([]);
+        setActiveController(null);
       }
-    })();
+    };
+
+    // Button index -> GamehubAction (standard gamepad mapping)
+    const buttonMap: Record<number, GamehubAction> = {
+      0: "confirm",        // A / Cross
+      1: "cancel",         // B / Circle
+      2: "secondaryAction",// X / Square
+      3: "secondaryAction",// Y / Triangle
+      4: "leftShoulder",   // LB
+      5: "rightShoulder",  // RB
+      6: "leftTrigger",    // LT
+      7: "rightTrigger",   // RT
+      8: "secondaryAction",// Select/Share
+      9: "menu",           // Start/Options
+      10: "leftStickClick",
+      11: "rightStickClick",
+      12: "up",            // DPad Up
+      13: "down",          // DPad Down
+      14: "left",          // DPad Left
+      15: "right",         // DPad Right
+    };
 
     const poll = async () => {
       if (!running) return;
-      // While a game is running or launching, do not consume controller events for Veylix
-      // navigation; the game owns the controller.
+
       const s = useConsoleStore.getState();
       if (s.sessionState !== "idle" && s.activeGameId === null) useConsoleStore.getState().endSession();
       const s2 = useConsoleStore.getState();
@@ -54,78 +85,62 @@ export function useControllerInput(
         rafRef.current = requestAnimationFrame(poll);
         return;
       }
-      try {
-        const events: GamepadChannelEvent[] = await invoke("poll_gamepad_events");
-        if (events.length > 0) {
-          console.log("[ControllerInput] received", events.length, "events:", events.map((e) => e.type).join(","));
-        }
 
-        for (const event of events) {
-          switch (event.type) {
-            case "connected": {
-              setConnected(true);
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      updateConnection();
+
+      for (const pad of pads) {
+        if (!pad) continue;
+        // Buttons
+        pad.buttons.forEach((btn, idx) => {
+          const key = pad.index * 100 + idx;
+          const wasPressed = prevButtons.current.get(key) || false;
+          const pressed = btn.pressed || btn.value > 0.5;
+          if (pressed !== wasPressed) {
+            if (postGameBaseline.current) {
+              prevButtons.current.set(key, pressed);
+              return;
+            }
+            prevButtons.current.set(key, pressed);
+            const action = buttonMap[idx];
+            if (action && pressed) {
               setInputMethod("controller");
-              const controllers: ControllerInfo[] = await invoke("get_controllers");
-              setControllers(controllers);
-              const active: ControllerInfo | null = await invoke("get_active_controller");
-              setActiveController(active);
-              break;
+              onActionRef.current(action, true);
             }
-            case "disconnected": {
-              const controllers: ControllerInfo[] = await invoke("get_controllers");
-              setControllers(controllers);
-              if (controllers.length === 0) {
-                setConnected(false);
-                setActiveController(null);
-              } else {
-                const active: ControllerInfo | null = await invoke("get_active_controller");
-                setActiveController(active);
-              }
-              break;
-            }
-            case "action": {
-              const key = `${event.id}-${event.action}`;
-              if (postGameBaseline.current) {
-                // Establish baseline without firing actions.
-                prevButtons.current.set(key, event.pressed);
-                break;
-              }
-              const wasPressed = prevButtons.current.get(key) || false;
-
-              if (event.pressed && !wasPressed) {
-                onActionRef.current(event.action, true);
-              } else if (!event.pressed && wasPressed) {
-                onActionRef.current(event.action, false);
-              }
-              prevButtons.current.set(key, event.pressed);
-              break;
-            }
-            case "axisChanged": {
-              if (event.axis === "LeftStickX" || event.axis === "LeftStickY") {
-                const dz = settingsRef.current.deadZone;
-                const val = Math.abs(event.value) < dz ? 0 : event.value;
-                onAxisRef.current(event.axis, val);
-              }
-              break;
-            }
+          } else {
+            prevButtons.current.set(key, pressed);
           }
+        });
+        // Axes
+        if (pad.axes.length >= 2) {
+          const dz = settingsRef.current.deadZone;
+          const lx = Math.abs(pad.axes[0]) < dz ? 0 : pad.axes[0];
+          const ly = Math.abs(pad.axes[1]) < dz ? 0 : pad.axes[1];
+          onAxisRef.current("LeftStickX", lx);
+          onAxisRef.current("LeftStickY", ly);
         }
-      } catch (err) {
-        console.warn("Controller polling error:", err);
       }
 
       if (postGameBaseline.current) {
-        // Baseline established after first post-game poll.
         postGameBaseline.current = false;
       }
+
       rafRef.current = requestAnimationFrame(poll);
     };
+
+    // Listen for gamepad connect/disconnect
+    const onConnect = () => updateConnection();
+    const onDisconnect = () => updateConnection();
+    window.addEventListener("gamepadconnected", onConnect);
+    window.addEventListener("gamepaddisconnected", onDisconnect);
 
     rafRef.current = requestAnimationFrame(poll);
 
     return () => {
       running = false;
       cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("gamepadconnected", onConnect);
+      window.removeEventListener("gamepaddisconnected", onDisconnect);
     };
   }, [setConnected, setControllers, setActiveController, setInputMethod]);
 }

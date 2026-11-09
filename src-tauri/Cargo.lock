@@ -1095,6 +1095,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "urlencoding",
+ "windows 0.62.2",
  "windows-sys 0.59.0",
  "zip 2.4.2",
 ]

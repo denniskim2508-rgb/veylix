@@ -2,6 +2,22 @@ pub mod detection;
 pub mod mapping;
 
 use detection::{ControllerType, identify_controller};
+
+// --- XInput (via windows-sys, reliable Windows input for Xbox + XInput-mode controllers) ---
+use windows_sys::Win32::UI::Input::XboxController::{
+    XInputGetState, XINPUT_STATE, XINPUT_GAMEPAD,
+    XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT,
+    XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_BACK,
+    XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB,
+    XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_RIGHT_SHOULDER,
+    XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y,
+};
+
+fn xinput_get_state(slot: u32) -> Option<XINPUT_STATE> {
+    let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
+    let r = unsafe { XInputGetState(slot, &mut state) };
+    if r == 0 { Some(state) } else { None }
+}
 use mapping::{GamehubAction, PhysicalButton, ButtonMapping, get_default_mapping, get_button_prompts};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -104,32 +120,26 @@ fn send_request(cmd: ControllerCommand) -> ControllerResponse {
 }
 
 fn controller_thread(rx: mpsc::Receiver<Request>) {
-    use gilrs::{Gilrs, GamepadId, EventType};
+    use windows::Gaming::Input::RawGameController as RawGc;
+    use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PeekMessageW, DispatchMessageW, TranslateMessage, MSG, PM_REMOVE};
 
-    let mut gilrs = match Gilrs::new() {
-        Ok(g) => {
-            let count = g.gamepads().count();
-            let connected: Vec<_> = g.gamepads().map(|(_, p)| {
-                let vid = p.vendor_id();
-                let pid = p.product_id();
-                format!("\"{}\" os=\"{}\" vid={:?} pid={:?}", p.name(), p.os_name(), vid, pid)
-            }).collect();
-            log::info!("[Controller] gilrs (WGI) initialized OK — {} device(s) on startup: {:?}", count, connected);
-            g
-        }
-        Err(e) => {
-            log::error!("[Controller] gilrs init FAILED: {:?}", e);
-            log::error!("[Controller] This likely means xinput1_4.dll is not available.");
-            while let Ok(_req) = rx.recv() {}
-            return;
-        }
-    };
+    // STA apartment is required for WGI RawGameController event delivery.
+    unsafe { let _ = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32); }
 
-    let mut controllers: HashMap<GamepadId, ControllerState> = HashMap::new();
-    let mut active_id: Option<GamepadId> = None;
+    // State tracking for diffing
+    struct SlotState {
+        id: usize,
+        name: String,
+        buttons: u32,
+        axes: Vec<f64>,
+    }
+    let mut slot_states: Vec<SlotState> = Vec::new();
+    let mut controllers: HashMap<usize, ControllerState> = HashMap::new();
+    let mut active_id: Option<usize> = None;
     let mut settings = ControllerSettings::default();
     let mut next_serial_id: usize = 1;
-    let mut serial_map: HashMap<GamepadId, usize> = HashMap::new();
+    let mut serial_map: HashMap<usize, usize> = HashMap::new();
     let mut last_alive_log = std::time::Instant::now();
     let mut poll_count: u64 = 0;
 
@@ -141,176 +151,192 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
         left_stick_y: f32,
     }
 
-    fn get_serial_id(gid: GamepadId, serial_map: &mut HashMap<GamepadId, usize>, next: &mut usize) -> usize {
-        *serial_map.entry(gid).or_insert_with(|| {
+    fn get_serial_id(idx: usize, serial_map: &mut HashMap<usize, usize>, next: &mut usize) -> usize {
+        *serial_map.entry(idx).or_insert_with(|| {
             let id = *next;
             *next += 1;
             id
         })
     }
 
-    // gilrs only emits `EventType::Connected` on a disconnected -> connected
-    // transition. Pads that are already plugged in when `Gilrs::new()` runs never
-    // produce that event, so seed the map from the current gamepad list.
-    let already_connected: Vec<_> = gilrs
-        .gamepads()
-        .map(|(gid, pad)| {
-            (
-                gid,
-                pad.name().to_string(),
-                pad.os_name().to_string(),
-                pad.vendor_id(),
-                pad.product_id(),
-            )
-        })
-        .collect();
-
-    for (gid, name, os_name, vid, pid) in already_connected {
-        let sid = get_serial_id(gid, &mut serial_map, &mut next_serial_id);
-        let ctype = identify_controller(vid, pid, &name);
-        let prompts = get_button_prompts(ctype);
-        log::info!("[Controller] seeded already-connected pad id={} \"{}\" os=\"{}\" vid={:?} pid={:?} type={:?}", sid, name, os_name, vid, pid, ctype);
-        controllers.insert(gid, ControllerState {
-            info: ControllerInfo {
-                id: sid,
-                name,
-                os_name,
-                controller_type: ctype,
-                vendor_id: vid,
-                product_id: pid,
-                button_prompts: prompts,
-                is_active: true,
-            },
-            mapping: get_default_mapping(ctype),
-            prev_buttons: HashMap::new(),
-            left_stick_x: 0.0,
-            left_stick_y: 0.0,
-        });
-        if active_id.is_none() {
-            active_id = Some(gid);
+    // Seed existing controllers
+    if let Ok(gamepads) = windows::Gaming::Input::Gamepad::Gamepads() {
+        let count = gamepads.Size().unwrap_or(0);
+        for i in 0..count {
+            if let Ok(gp) = gamepads.GetAt(i) {
+                let reading = gp.GetCurrentReading().ok();
+                let name = "Gamepad".to_string();
+                let ctype = ControllerType::Xbox360;
+                let prompts = get_button_prompts(ctype);
+                let mapping = get_default_mapping(ctype);
+                let sid = get_serial_id(i as usize, &mut serial_map, &mut next_serial_id);
+                log::info!("[Controller] seeded gamepad idx={} reading={:?}", i, reading.as_ref().map(|r| r.Buttons.0));
+                controllers.insert(i as usize, ControllerState {
+                    info: ControllerInfo {
+                        id: sid,
+                        name: name.clone(),
+                        os_name: "WGI".to_string(),
+                        controller_type: ctype,
+                        vendor_id: None,
+                        product_id: None,
+                        button_prompts: prompts.clone(),
+                        is_active: true,
+                    },
+                    mapping,
+                    prev_buttons: HashMap::new(),
+                    left_stick_x: 0.0,
+                    left_stick_y: 0.0,
+                });
+                slot_states.push(SlotState { id: i as usize, name, buttons: 0, axes: vec![] });
+                if active_id.is_none() { active_id = Some(i as usize); }
+            }
         }
     }
+    log::info!("[Controller] controller_thread started, {} controller(s) seeded", controllers.len());
 
-    log::info!("[Controller] controller_thread started, entering event loop ({} controller(s) seeded)", controllers.len());
     loop {
+        // Pump messages (required for WGI event delivery in STA).
+        unsafe {
+            let mut msg: MSG = std::mem::zeroed();
+            while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+
         while let Ok(req) = rx.try_recv() {
             match req.cmd {
                 ControllerCommand::PollEvents => {
                     let mut events = Vec::new();
                     poll_count += 1;
 
-                    if poll_count % 250 == 1 {
-                        log::info!("[Controller] poll #{}: {} controller(s) tracked", poll_count, controllers.len());
-                    }
+                    // Re-enumerate controllers (handle connect/disconnect)
+                    let mut current_indices: Vec<usize> = Vec::new();
+                    if let Ok(gamepads) = windows::Gaming::Input::Gamepad::Gamepads() {
+                        let count = gamepads.Size().unwrap_or(0) as usize;
+                        for i in 0..count {
+                            if let Ok(gp) = gamepads.GetAt(i as u32) {
+                                let reading = match gp.GetCurrentReading() {
+                                    Ok(r) => r,
+                                    Err(_) => continue,
+                                };
+                                let idx = i;
+                                current_indices.push(idx);
 
-                    while let Some(ev) = gilrs.next_event() {
-                        let sid = get_serial_id(ev.id, &mut serial_map, &mut next_serial_id);
-                        match ev.event {
-                            EventType::Connected => {
-                                let pad = gilrs.gamepad(ev.id);
-                                let name = pad.name().to_string();
-                                let os_name = pad.os_name().to_string();
-                                let vid = pad.vendor_id();
-                                let pid = pad.product_id();
-                                let ctype = identify_controller(vid, pid, &name);
-                                let prompts = get_button_prompts(ctype);
-                                let mapping = get_default_mapping(ctype);
-
-                                log::info!("[gilrs] CONNECTED: \"{}\" os=\"{}\" vid={:?} pid={:?} type={:?}", name, os_name, vid, pid, ctype);
-
-                                let info = ControllerInfo {
-                                    id: sid,
-                                    name: name.clone(),
-                                    os_name: os_name.clone(),
-                                    controller_type: ctype,
-                                    vendor_id: vid,
-                                    product_id: pid,
-                                    button_prompts: prompts.clone(),
-                                    is_active: true,
+                                let sid = if let Some(c) = controllers.get(&idx) { c.info.id } else {
+                                    let new_sid = get_serial_id(idx, &mut serial_map, &mut next_serial_id);
+                                    let ctype = ControllerType::Xbox360;
+                                    let prompts = get_button_prompts(ctype);
+                                    let mapping = get_default_mapping(ctype);
+                                    controllers.insert(idx, ControllerState {
+                                        info: ControllerInfo {
+                                            id: new_sid,
+                                            name: "Gamepad".to_string(),
+                                            os_name: "WGI".to_string(),
+                                            controller_type: ctype,
+                                            vendor_id: None,
+                                            product_id: None,
+                                            button_prompts: prompts.clone(),
+                                            is_active: true,
+                                        },
+                                        mapping,
+                                        prev_buttons: HashMap::new(),
+                                        left_stick_x: 0.0,
+                                        left_stick_y: 0.0,
+                                    });
+                                    slot_states.push(SlotState { id: idx, name: "Gamepad".to_string(), buttons: 0, axes: vec![] });
+                                    if active_id.is_none() { active_id = Some(idx); }
+                                    new_sid
                                 };
 
-                                controllers.insert(ev.id, ControllerState {
-                                    info,
-                                    mapping,
-                                    prev_buttons: HashMap::new(),
-                                    left_stick_x: 0.0,
-                                    left_stick_y: 0.0,
-                                });
+                                let old_btn_u32 = if idx < slot_states.len() { slot_states[idx].buttons } else { 0u32 };
+                                let new_buttons_u32 = reading.Buttons.0;
+                                if poll_count % 50 == 0 {
+                                    log::info!("[WGI-Gamepad] buttons=0x{:X} lx={:.2} ly={:.2}", new_buttons_u32, reading.LeftThumbstickX, reading.LeftThumbstickY);
+                                }
+                                let changed = old_btn_u32 ^ new_buttons_u32;
 
-                                active_id = Some(ev.id);
+                                // Map GamepadButtons to actions
+                                let btn_map: &[(u32, PhysicalButton)] = &[
+                                    (windows::Gaming::Input::GamepadButtons::A.0, PhysicalButton::South),
+                                    (windows::Gaming::Input::GamepadButtons::B.0, PhysicalButton::East),
+                                    (windows::Gaming::Input::GamepadButtons::X.0, PhysicalButton::West),
+                                    (windows::Gaming::Input::GamepadButtons::Y.0, PhysicalButton::North),
+                                    (windows::Gaming::Input::GamepadButtons::Menu.0, PhysicalButton::Start),
+                                    (windows::Gaming::Input::GamepadButtons::View.0, PhysicalButton::Select),
+                                    (windows::Gaming::Input::GamepadButtons::LeftShoulder.0, PhysicalButton::LeftBumper),
+                                    (windows::Gaming::Input::GamepadButtons::RightShoulder.0, PhysicalButton::RightBumper),
+                                    (windows::Gaming::Input::GamepadButtons::LeftThumbstick.0, PhysicalButton::LeftThumb),
+                                    (windows::Gaming::Input::GamepadButtons::RightThumbstick.0, PhysicalButton::RightThumb),
+                                    (windows::Gaming::Input::GamepadButtons::DPadUp.0, PhysicalButton::DpadUp),
+                                    (windows::Gaming::Input::GamepadButtons::DPadDown.0, PhysicalButton::DpadDown),
+                                    (windows::Gaming::Input::GamepadButtons::DPadLeft.0, PhysicalButton::DpadLeft),
+                                    (windows::Gaming::Input::GamepadButtons::DPadRight.0, PhysicalButton::DpadRight),
+                                ];
 
-                                events.push(GamepadChannelEvent::Connected {
-                                    id: sid,
-                                    name,
-                                    os_name,
-                                    controller_type: ctype,
-                                    vendor_id: vid,
-                                    product_id: pid,
-                                    button_prompts: prompts,
-                                });
-                            }
-                            EventType::Disconnected => {
-                                log::info!("[gilrs] DISCONNECTED: serial_id={}", sid);
-                                controllers.remove(&ev.id);
-                                serial_map.remove(&ev.id);
-                                if active_id == Some(ev.id) {
-                                    active_id = controllers.keys().next().copied();
-                                }
-                                events.push(GamepadChannelEvent::Disconnected { id: sid });
-                            }
-                            EventType::ButtonPressed(button, _) => {
-                                active_id = Some(ev.id);
-                                log::info!("[gilrs] ButtonPressed {:?} serial_id={}", button, sid);
-                                if let Some(state) = controllers.get_mut(&ev.id) {
-                                    if let Some(phys) = PhysicalButton::from_gilrs(button) {
-                                        state.prev_buttons.insert(phys, true);
-                                        let action = state.mapping.get(&phys).copied()
-                                            .unwrap_or(GamehubAction::Confirm);
-                                        events.push(GamepadChannelEvent::Action {
-                                            id: sid,
-                                            action,
-                                            pressed: true,
-                                        });
+                                for (mask, phys) in btn_map {
+                                    if changed & mask != 0 {
+                                        let pressed = new_buttons_u32 & mask != 0;
+                                        let action = match phys {
+                                            PhysicalButton::South => GamehubAction::Confirm,
+                                            PhysicalButton::East => GamehubAction::Cancel,
+                                            PhysicalButton::West => GamehubAction::SecondaryAction,
+                                            PhysicalButton::North => GamehubAction::SecondaryAction,
+                                            PhysicalButton::Start => GamehubAction::Menu,
+                                            PhysicalButton::Select => GamehubAction::SecondaryAction,
+                                            PhysicalButton::LeftBumper => GamehubAction::LeftShoulder,
+                                            PhysicalButton::RightBumper => GamehubAction::RightShoulder,
+                                            PhysicalButton::LeftThumb => GamehubAction::LeftStickClick,
+                                            PhysicalButton::RightThumb => GamehubAction::RightStickClick,
+                                            PhysicalButton::DpadUp => GamehubAction::Up,
+                                            PhysicalButton::DpadDown => GamehubAction::Down,
+                                            PhysicalButton::DpadLeft => GamehubAction::Left,
+                                            PhysicalButton::DpadRight => GamehubAction::Right,
+                                            PhysicalButton::LeftTrigger => GamehubAction::LeftTrigger,
+                                            PhysicalButton::RightTrigger => GamehubAction::RightTrigger,
+                                        };
+                                        log::info!("[WGI-Gamepad] idx {} button {:?} pressed={}", idx, phys, pressed);
+                                        events.push(GamepadChannelEvent::Action { id: sid, action, pressed });
                                     }
                                 }
-                            }
-                            EventType::ButtonReleased(button, _) => {
-                                log::info!("[gilrs] ButtonReleased {:?} serial_id={}", button, sid);
-                                if let Some(state) = controllers.get_mut(&ev.id) {
-                                    if let Some(phys) = PhysicalButton::from_gilrs(button) {
-                                        state.prev_buttons.insert(phys, false);
-                                        let action = state.mapping.get(&phys).copied()
-                                            .unwrap_or(GamehubAction::Confirm);
-                                        events.push(GamepadChannelEvent::Action {
-                                            id: sid,
-                                            action,
-                                            pressed: false,
-                                        });
-                                    }
+
+                                // Triggers
+                                let lt = reading.LeftTrigger;
+                                let rt = reading.RightTrigger;
+                                // (simplified: emit trigger press/release on threshold crossing)
+                                // Skip for now to avoid spam; handle via button events if needed.
+
+                                // Axis events
+                                events.push(GamepadChannelEvent::AxisChanged { id: sid, axis: "LeftStickX".to_string(), value: reading.LeftThumbstickX as f32 });
+                                events.push(GamepadChannelEvent::AxisChanged { id: sid, axis: "LeftStickY".to_string(), value: reading.LeftThumbstickY as f32 });
+
+                                if idx < slot_states.len() {
+                                    slot_states[idx].buttons = new_buttons_u32;
+                                    slot_states[idx].axes = vec![reading.LeftThumbstickX, reading.LeftThumbstickY, reading.RightThumbstickX, reading.RightThumbstickY];
+                                } else {
+                                    slot_states.push(SlotState { id: idx, name: "Gamepad".to_string(), buttons: new_buttons_u32, axes: vec![reading.LeftThumbstickX, reading.LeftThumbstickY, reading.RightThumbstickX, reading.RightThumbstickY] });
                                 }
                             }
-                            EventType::AxisChanged(axis, value, _) => {
-                                active_id = Some(ev.id);
-                                let axis_name = format!("{:?}", axis);
-                                if let Some(state) = controllers.get_mut(&ev.id) {
-                                    match axis {
-                                        gilrs::Axis::LeftStickX => state.left_stick_x = value,
-                                        gilrs::Axis::LeftStickY => state.left_stick_y = value,
-                                        _ => {}
-                                    }
-                                }
-                                events.push(GamepadChannelEvent::AxisChanged {
-                                    id: sid,
-                                    axis: axis_name,
-                                    value,
-                                });
-                            }
-                            _ => {}
                         }
                     }
-                    if !events.is_empty() {
-                        log::info!("[Controller] poll #{}: {} event(s): {:?}", poll_count, events.len(), events.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>());
+
+                    // Handle disconnections
+                    let connected_indices: Vec<usize> = current_indices.clone();
+                    let disconnected: Vec<usize> = slot_states.iter().map(|s| s.id).filter(|id| !connected_indices.contains(id)).collect();
+                    for idx in disconnected {
+                        log::info!("[WGI-Direct] DISCONNECTED idx={}", idx);
+                        if let Some(c) = controllers.get(&idx) {
+                            events.push(GamepadChannelEvent::Disconnected { id: c.info.id });
+                        }
+                        controllers.remove(&idx);
+                        slot_states.retain(|s| s.id != idx);
+                        serial_map.remove(&idx);
                     }
+
+                    if poll_count % 50 == 0 {
+                        log::info!("[Controller] poll #{}: {} controller(s) tracked, {} events", poll_count, controllers.len(), events.len());
+                    }
+
                     let _ = req.resp_tx.send(ControllerResponse::Events(events));
                 }
                 ControllerCommand::GetControllers => {
@@ -344,6 +370,7 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                 }
                 ControllerCommand::Shutdown => {
                     let _ = req.resp_tx.send(ControllerResponse::Ack);
+                    unsafe { windows_sys::Win32::System::Com::CoUninitialize(); }
                     return;
                 }
             }
@@ -352,11 +379,14 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
         std::thread::sleep(std::time::Duration::from_millis(4));
 
         if last_alive_log.elapsed() >= std::time::Duration::from_secs(5) {
-            log::info!("[Controller] alive #{} — {} controller(s) tracked", poll_count, controllers.len());
+            log::info!("[Controller] alive #{} - {} controller(s) tracked", poll_count, controllers.len());
             last_alive_log = std::time::Instant::now();
         }
     }
+
+    unsafe { windows_sys::Win32::System::Com::CoUninitialize(); }
 }
+
 
 pub fn init_controller_manager() {
     let _ = &*REQ_TX;
