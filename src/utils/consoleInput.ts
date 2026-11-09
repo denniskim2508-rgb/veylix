@@ -20,7 +20,6 @@ export function setConsoleOverlayHandler(handler: ConsoleHandler | null): void {
 }
 
 export function emitConsoleAction(action: GamehubAction) {
-  console.log("[consoleInput] emitConsoleAction:", action, "overlayHandler:", !!overlayHandler, "listeners:", listeners.size);
   if (overlayHandler) {
     overlayHandler(action);
     return;

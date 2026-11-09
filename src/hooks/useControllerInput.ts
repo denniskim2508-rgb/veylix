@@ -100,11 +100,6 @@ export function useControllerInput(
       const padCount = pads.filter((p) => p !== null).length;
       if (padCount > 0) {
         activated.current = true;
-        if (Math.random() < 0.1) {
-          console.log("[WebGamepad] pads:", padCount, "btns:", pads[0]?.buttons?.length, "axes:", pads[0]?.axes?.length, "activated:", activated.current);
-        }
-      } else if (Math.random() < 0.02) {
-        console.log("[WebGamepad] no gamepads detected; activated:", activated.current);
       }
       updateConnection();
 
@@ -116,7 +111,7 @@ export function useControllerInput(
           const wasPressed = prevButtons.current.get(key) || false;
           const pressed = btn.pressed || btn.value > 0.5;
           if (pressed !== wasPressed) {
-            if (pressed) console.log("[WebGamepad] button", idx, "pressed; mapped action:", buttonMap[idx]);
+            // button press handled below
             if (postGameBaseline.current) {
               prevButtons.current.set(key, pressed);
               return;
