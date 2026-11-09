@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Gamepad2, AlertCircle } from "lucide-react";
 import { useFocusableElement } from "../hooks/useFocusableElement";
+import { useNavigation } from "./NavigationProvider";
 import type { GamepadChannelEvent, GamehubAction } from "../types/controller";
 
 interface ControllerDiagnosticsProps {
@@ -39,12 +40,16 @@ export function ControllerDiagnostics({ onClose }: ControllerDiagnosticsProps) {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [liveInput, setLiveInput] = useState<LiveInput>({ buttons: {}, axes: {} });
   const [events, setEvents] = useState<string[]>([]);
-  const [backend] = useState<string>("XInput (gilrs)");
+  const [backend] = useState<string>("WGI (gilrs)");
   const prevButtons = useRef<Map<string, boolean>>(new Map());
   const rafRef = useRef<number>(0);
   const eventLogRef = useRef<HTMLDivElement>(null);
 
   const closeBtn = useFocusableElement({ id: "diag-close", region: "modal", onClick: onClose });
+  const { setActiveRegion } = useNavigation();
+  useEffect(() => {
+    setActiveRegion("modal");
+  }, [setActiveRegion]);
 
   const addEvent = useCallback((msg: string) => {
     setEvents((prev) => {

@@ -6,6 +6,7 @@ import { useConsoleStore } from "../store/consoleStore";
 import { useUpdateStore } from "../store/updateStore";
 import { useT, useI18nStore, LANGUAGES, type Language } from "../i18n";
 import { useFocusableElement } from "../hooks/useFocusableElement";
+import { useNavigation } from "./NavigationProvider";
 import clsx from "clsx";
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -131,6 +132,10 @@ export function SettingsModal({
   const setSortBy = useStore((s) => s.setSortBy);
 
   const { t } = useT();
+  const { setActiveRegion } = useNavigation();
+  useEffect(() => {
+    setActiveRegion("modal");
+  }, [setActiveRegion]);
   const language = useI18nStore((s) => s.language);
   const setLanguage = useI18nStore((s) => s.setLanguage);
 

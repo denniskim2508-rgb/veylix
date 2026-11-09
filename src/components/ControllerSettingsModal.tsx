@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { X, Gamepad2, RotateCcw } from "lucide-react";
 import { useControllerStore } from "../store/controllerStore";
 import { useFocusableElement } from "../hooks/useFocusableElement";
+import { useNavigation } from "./NavigationProvider";
 import { useT } from "../i18n";
 import type { ControllerSettings as ControllerSettingsType } from "../types/controller";
 import clsx from "clsx";
@@ -18,6 +19,10 @@ interface ControllerSettingsModalProps {
 export function ControllerSettingsModal({ onClose }: ControllerSettingsModalProps) {
   const { controllers, activeController, settings, setSettings } = useControllerStore();
   const { t } = useT();
+  const { setActiveRegion } = useNavigation();
+  useEffect(() => {
+    setActiveRegion("modal");
+  }, [setActiveRegion]);
   const [localSettings, setLocalSettings] = useState<ControllerSettingsType>({ ...settings });
   const [saved, setSaved] = useState(false);
 

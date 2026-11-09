@@ -42,11 +42,13 @@ export function useControllerInput(
       // While a game is running or launching, do not consume controller events for Veylix
       // navigation; the game owns the controller.
       const s = useConsoleStore.getState();
-      if (s.activeGameId !== null || s.sessionState !== "idle") {
+      if (s.sessionState !== "idle" && s.activeGameId === null) useConsoleStore.getState().endSession();
+      const s2 = useConsoleStore.getState();
+      if (s2.activeGameId !== null || s2.sessionState !== "idle") {
         rafRef.current = requestAnimationFrame(poll);
         return;
       }
-      if (Date.now() - s.gameExitedAt < 1500) {
+      if (Date.now() - s2.gameExitedAt < 1500) {
         postGameBaseline.current = true;
         prevButtons.current.clear();
         rafRef.current = requestAnimationFrame(poll);

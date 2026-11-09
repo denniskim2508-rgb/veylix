@@ -71,8 +71,13 @@ function ControllerInputBridge() {
     if (!pressed) { return; }
     // While a game is running or launching, ignore all controller actions for Veylix.
     const s = useConsoleStore.getState();
-    if (s.activeGameId !== null || s.sessionState !== "idle") return;
-    if (Date.now() - s.gameExitedAt < 1500) return;
+    // Safety: if session state is stuck (not idle) but no game is actually running, reset.
+    if (s.sessionState !== "idle" && s.activeGameId === null) {
+      useConsoleStore.getState().endSession();
+    }
+    const s2 = useConsoleStore.getState();
+    if (s2.activeGameId !== null || s2.sessionState !== "idle") return;
+    if (Date.now() - s2.gameExitedAt < 1500) return;
 
     setInputMethod("controller");
 
@@ -97,8 +102,10 @@ function ControllerInputBridge() {
 
   const onAxis = useCallback((_axis: string, value: number) => {
     const s = useConsoleStore.getState();
-    if (s.activeGameId !== null || s.sessionState !== "idle") return;
-    if (Date.now() - s.gameExitedAt < 1500) return;
+    if (s.sessionState !== "idle" && s.activeGameId === null) useConsoleStore.getState().endSession();
+    const s2 = useConsoleStore.getState();
+    if (s2.activeGameId !== null || s2.sessionState !== "idle") return;
+    if (Date.now() - s2.gameExitedAt < 1500) return;
     if (isMenuOpenRef.current && activeMode === "desktop") return;
 
     const threshold = settings.stickThreshold;
@@ -132,8 +139,10 @@ function KeyboardNavigation() {
       if (!e.isTrusted) return;
       // While a game is running or launching, don't process keyboard navigation.
       const s = useConsoleStore.getState();
-      if (s.activeGameId !== null || s.sessionState !== "idle") return;
-      if (Date.now() - s.gameExitedAt < 1500) return;
+      if (s.sessionState !== "idle" && s.activeGameId === null) useConsoleStore.getState().endSession();
+      const s2 = useConsoleStore.getState();
+      if (s2.activeGameId !== null || s2.sessionState !== "idle") return;
+      if (Date.now() - s2.gameExitedAt < 1500) return;
 
       // Don't intercept when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;

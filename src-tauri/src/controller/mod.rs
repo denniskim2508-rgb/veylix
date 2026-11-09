@@ -114,7 +114,7 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                 let pid = p.product_id();
                 format!("\"{}\" os=\"{}\" vid={:?} pid={:?}", p.name(), p.os_name(), vid, pid)
             }).collect();
-            log::info!("[Controller] gilrs (XInput) initialized OK — {} device(s) on startup: {:?}", count, connected);
+            log::info!("[Controller] gilrs (WGI) initialized OK — {} device(s) on startup: {:?}", count, connected);
             g
         }
         Err(e) => {
@@ -256,6 +256,7 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                             }
                             EventType::ButtonPressed(button, _) => {
                                 active_id = Some(ev.id);
+                                log::info!("[gilrs] ButtonPressed {:?} serial_id={}", button, sid);
                                 if let Some(state) = controllers.get_mut(&ev.id) {
                                     if let Some(phys) = PhysicalButton::from_gilrs(button) {
                                         state.prev_buttons.insert(phys, true);
@@ -270,6 +271,7 @@ fn controller_thread(rx: mpsc::Receiver<Request>) {
                                 }
                             }
                             EventType::ButtonReleased(button, _) => {
+                                log::info!("[gilrs] ButtonReleased {:?} serial_id={}", button, sid);
                                 if let Some(state) = controllers.get_mut(&ev.id) {
                                     if let Some(phys) = PhysicalButton::from_gilrs(button) {
                                         state.prev_buttons.insert(phys, false);
