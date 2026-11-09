@@ -14,6 +14,7 @@ export function useControllerInput(
   const rafRef = useRef<number>(0);
   const prevButtons = useRef<Map<number, boolean>>(new Map());
   const postGameBaseline = useRef<boolean>(false);
+  const activated = useRef<boolean>(false);
 
   onActionRef.current = onAction;
   onAxisRef.current = onAxis;
@@ -69,6 +70,15 @@ export function useControllerInput(
       15: "right",         // DPad Right
     };
 
+    // Ensure the page is activated (required by Web Gamepad API for gamepadconnected to fire).
+    const activate = () => { activated.current = true; };
+    const onFirstInteraction = () => { activate(); };
+    window.addEventListener("click", onFirstInteraction, { once: true });
+    window.addEventListener("keydown", onFirstInteraction, { once: true });
+    // Also treat any gamepad button press as activation by polling getGamepads on every frame.
+    // Focus the window to ensure it's the foreground.
+    try { window.focus(); } catch {}
+
     const poll = async () => {
       if (!running) return;
 
@@ -88,8 +98,13 @@ export function useControllerInput(
 
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const padCount = pads.filter((p) => p !== null).length;
-      if (padCount > 0 && Math.random() < 0.05) {
-        console.log("[WebGamepad] pads:", padCount, "btns:", pads[0]?.buttons?.length, "axes:", pads[0]?.axes?.length);
+      if (padCount > 0) {
+        activated.current = true;
+        if (Math.random() < 0.1) {
+          console.log("[WebGamepad] pads:", padCount, "btns:", pads[0]?.buttons?.length, "axes:", pads[0]?.axes?.length, "activated:", activated.current);
+        }
+      } else if (Math.random() < 0.02) {
+        console.log("[WebGamepad] no gamepads detected; activated:", activated.current);
       }
       updateConnection();
 
@@ -146,6 +161,8 @@ export function useControllerInput(
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("gamepadconnected", onConnect);
       window.removeEventListener("gamepaddisconnected", onDisconnect);
+      window.removeEventListener("click", onFirstInteraction);
+      window.removeEventListener("keydown", onFirstInteraction);
     };
   }, [setConnected, setControllers, setActiveController, setInputMethod]);
 }
