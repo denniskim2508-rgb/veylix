@@ -1,6 +1,6 @@
 [package]
 name = "gamehub"
-version = "0.1.4"
+version = "0.1.5"
 description = "Open-source game library manager"
 authors = ["Dennis"]
 license = "MIT"

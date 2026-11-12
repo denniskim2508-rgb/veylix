@@ -1,7 +1,91 @@
 import { useEffect, useRef } from "react";
-import type { GamehubAction } from "../types/controller";
+import type { ButtonPrompt, ControllerInfo, ControllerType, GamehubAction } from "../types/controller";
 import { useControllerStore } from "../store/controllerStore";
 import { useConsoleStore } from "../store/consoleStore";
+
+function identifyControllerType(id: string): ControllerType {
+  const n = id.toLowerCase();
+  // Common Web Gamepad API IDs: "Xbox 360 Controller (XInput STANDARD GAMEPAD)",
+  // "Wireless Controller (STANDARD GAMEPAD)" (DS4), "DualSense Wireless Controller", etc.
+  // Also may include "Vendor: 045e Product: 028e" style strings in some browsers.
+  const vidMatch = n.match(/vendor:\s*([0-9a-f]{4})/i) || n.match(/045e|054c|057e|28de/);
+  const pidMatch = n.match(/product:\s*([0-9a-f]{4})/i);
+  const vid = vidMatch ? (vidMatch[1] ? parseInt(vidMatch[1], 16) : (n.includes("045e") ? 0x045e : n.includes("054c") ? 0x054c : n.includes("057e") ? 0x057e : n.includes("28de") ? 0x28de : 0)) : 0;
+  const pid = pidMatch ? parseInt(pidMatch[1], 16) : 0;
+
+  if (vid === 0x045e) {
+    if (pid >= 0x0b00 && pid <= 0x0bff) return "xboxSeries";
+    if (pid >= 0x02d0 && pid <= 0x02ff) return "xboxOne";
+    return "xbox360";
+  }
+  if (vid === 0x054c) {
+    if (pid === 0x0ce6 || pid === 0x0df2) return "playStation5";
+    if (pid === 0x05c4 || pid === 0x09cc || pid === 0x0ba0) return "playStation4";
+    if (pid === 0x0268) return "playStation3";
+    if (n.includes("dualsense")) return "playStation5";
+    if (n.includes("dualshock 4") || n.includes("dualshock4")) return "playStation4";
+    return "playStation4";
+  }
+  if (vid === 0x057e) return "switchPro";
+  if (vid === 0x28de) return "steamDeck";
+
+  if (n.includes("xbox") || n.includes("xinput")) {
+    if (n.includes("series")) return "xboxSeries";
+    if (n.includes("one")) return "xboxOne";
+    return "xbox360";
+  }
+  if (n.includes("dualsense") || n.includes("ps5")) return "playStation5";
+  if (n.includes("dualshock 4") || n.includes("dualshock4") || n.includes("ps4") || n.includes("wireless controller")) return "playStation4";
+  if (n.includes("dualshock 3") || n.includes("ps3")) return "playStation3";
+  if (n.includes("switch") || n.includes("pro controller")) return "switchPro";
+  if (n.includes("steam")) return "steamDeck";
+  return "generic";
+}
+
+function getButtonPrompts(controllerType: ControllerType): Partial<Record<GamehubAction, ButtonPrompt>> {
+  const m: Partial<Record<GamehubAction, ButtonPrompt>> = {};
+  if (controllerType === "xbox360" || controllerType === "xboxOne" || controllerType === "xboxSeries") {
+    m.confirm = "xboxA";
+    m.cancel = "xboxB";
+    m.secondaryAction = "xboxX";
+    m.menu = "xboxMenu";
+  } else if (controllerType === "playStation3" || controllerType === "playStation4" || controllerType === "playStation5") {
+    m.confirm = "playStationCross";
+    m.cancel = "playStationCircle";
+    m.secondaryAction = "playStationSquare";
+    m.menu = "playStationOptions";
+  } else {
+    m.confirm = "genericButton1";
+    m.cancel = "genericButton2";
+    m.secondaryAction = "genericButton3";
+    m.menu = "genericButton4";
+  }
+  m.up = "dpadUp";
+  m.down = "dpadDown";
+  m.left = "dpadLeft";
+  m.right = "dpadRight";
+  m.leftShoulder = "leftShoulder";
+  m.rightShoulder = "rightShoulder";
+  m.leftTrigger = "leftTrigger";
+  m.rightTrigger = "rightTrigger";
+  m.leftStickClick = "leftStick";
+  m.rightStickClick = "rightStick";
+  return m;
+}
+
+function buildControllerInfo(pad: Gamepad): ControllerInfo {
+  const controllerType = identifyControllerType(pad.id);
+  return {
+    id: pad.index,
+    name: pad.id,
+    osName: "Web Gamepad API",
+    controllerType,
+    vendorId: null,
+    productId: null,
+    buttonPrompts: getButtonPrompts(controllerType),
+    isActive: true,
+  };
+}
 
 export function useControllerInput(
   onAction: (action: GamehubAction, pressed: boolean) => void,
@@ -31,19 +115,14 @@ export function useControllerInput(
       if (connected) {
         const list = pads
           .filter((p): p is Gamepad => p !== null)
-          .map((p) => ({
-            id: p.index,
-            name: p.id,
-            os_name: "Web Gamepad API",
-            controllerType: "Generic",
-            vendorId: null,
-            productId: null,
-            buttonPrompts: {},
-            isActive: true,
-          }));
-        setControllers(list as any);
-        const active = pads.find((p) => p !== null);
-        setActiveController(active ? ({ id: active.index, name: active.id, os_name: "Web Gamepad API", controllerType: "Generic", vendorId: null, productId: null, buttonPrompts: {}, isActive: true } as any) : null);
+          .map((p) => buildControllerInfo(p));
+        // Keep first as active for display; mark accordingly.
+        if (list.length > 0) {
+          list[0] = { ...list[0], isActive: true };
+          for (let i = 1; i < list.length; i++) list[i] = { ...list[i], isActive: false };
+        }
+        setControllers(list);
+        setActiveController(list[0] ?? null);
       } else {
         setControllers([]);
         setActiveController(null);
