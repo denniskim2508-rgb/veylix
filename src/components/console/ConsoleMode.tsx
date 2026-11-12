@@ -228,10 +228,15 @@ export function ConsoleMode() {
       const store = useConsoleStore.getState();
       if (document.visibilityState === "hidden") {
         // Game window came to foreground: Veylix is now in background.
-        if (store.sessionState === "launching" || store.sessionState === "loading") {
-          console.log("[LoadingScreen] visibility hidden during launch -> running");
+        // Only transition to running if we've already moved past launch initiation
+        // (loading/waiting for window). Don't skip the cinematic loading screen
+        // during the initial 'launching' phase.
+        if (store.sessionState === "loading") {
+          console.log("[LoadingScreen] visibility hidden during load -> running");
           store.setSessionState("running");
           uiAudio.setGameRunning(true);
+        } else if (store.sessionState === "launching") {
+          console.log("[LoadingScreen] visibility hidden during launch, keeping loading screen visible");
         }
         if (store.sessionState === "running") {
           wasHiddenDuringGame = true;
